@@ -1,4 +1,4 @@
-/* Player engine uses CC0 Elantra recordings. Traffic, exhaust pops and impacts are synthesized. */
+/* Player engine and collision sounds use recorded samples. */
 window.createAvanteExhaust=function(){
  let loadTime,armed,lastGear,lastRpm,clock,lockout,next,pops,power,glow;
  function reset(){
@@ -68,6 +68,15 @@ window.createSeoulSound=function(ctx){
  function filter(type,f,q){const n=ctx.createBiquadFilter();n.type=type;n.frequency.value=f;n.Q.value=q;return n;}
  function gain(){const g=ctx.createGain();g.gain.value=0;return g;}
  const set=(param,v,t,rate)=>param.setTargetAtTime(v,t,rate);
+ function recordedBuffer(clip){
+   const bytes=atob(clip.pcm),buffer=ctx.createBuffer(1,bytes.length/2,clip.rate);
+   const wave=buffer.getChannelData(0);
+   for(let i=0;i<wave.length;i++){
+     const v=bytes.charCodeAt(2*i)|(bytes.charCodeAt(2*i+1)<<8);
+     wave[i]=(v>=32768?v-65536:v)/32768;
+   }
+   return buffer;
+ }
  const exhaustBus=ctx.createGain(),exhaustCabin=filter('lowpass',6300,.65);
  exhaustBus.connect(exhaustCabin);exhaustCabin.connect(master);
  function avante(){
@@ -81,14 +90,8 @@ window.createSeoulSound=function(ctx){
    const induction=ctx.createBufferSource(),boostBand=filter('bandpass',1800,.65),boost=gain();
    induction.buffer=air;induction.loop=true;induction.connect(boostBand);boostBand.connect(boost);boost.connect(master);induction.start();
    for(const bank of banks){
-     const bytes=atob(bank.clip.pcm),buffer=ctx.createBuffer(1,bytes.length/2,bank.clip.rate);
-     const wave=buffer.getChannelData(0);
-     for(let i=0;i<wave.length;i++){
-       const v=bytes.charCodeAt(2*i)|(bytes.charCodeAt(2*i+1)<<8);
-       wave[i]=(v>=32768?v-65536:v)/32768;
-     }
      bank.src=ctx.createBufferSource();bank.weight=gain();
-     bank.src.buffer=buffer;bank.src.loop=true;bank.src.playbackRate.value=890/bank.rpm;
+     bank.src.buffer=recordedBuffer(bank.clip);bank.src.loop=true;bank.src.playbackRate.value=890/bank.rpm;
      bank.src.connect(bank.weight);bank.weight.connect(body);bank.weight.connect(inlet);bank.src.start();
    }
    return (enabled,rpm,gas,cut,inside)=>{
@@ -122,27 +125,25 @@ window.createSeoulSound=function(ctx){
  });
  const tails=new Set();let popIndex=0;
  const impactClips=new Map(),lastImpact=new Map();
+ const contactRecordings={
+   vehicle:['body_bump','body_crash'], concrete:['stone','stone'],
+   parapet:['stone','stone'], curb:['road_bump','road_bump'],
+   steel:['metal_bar','metal_crush'], wood:['wood','wood'], water:['splash','splash']
+ };
+ function playImpact(key,level){
+   if(!impactClips.has(key))impactClips.set(key,recordedBuffer(window.SEOUL_IMPACTS[key]));
+   const src=ctx.createBufferSource(),gain=ctx.createGain();src.buffer=impactClips.get(key);
+   gain.gain.value=level;src.connect(gain);gain.connect(master);tails.add(src);
+   src.onended=()=>{tails.delete(src);src.disconnect();gain.disconnect();};src.start();
+ }
  function impact(material,dv){
    const now=ctx.currentTime,last=lastImpact.get(material);
    if(!running||dv<.22||(last&&now-last.time<.13&&dv<last.dv*1.6))return;
    lastImpact.set(material,{time:now,dv});
-   const timbres={vehicle:[85,420,.22],steel:[174,910,.34],parapet:[75,310,.14],
-     curb:[108,205,.075],wood:[126,535,.13],concrete:[69,370,.16],water:[42,680,.43]};
-   const [bass,ring,decay]=timbres[material]||timbres.concrete;
-   if(!impactClips.has(material)){
-     const buffer=ctx.createBuffer(1,Math.ceil(ctx.sampleRate*decay*2.5),ctx.sampleRate),data=buffer.getChannelData(0);
-     let low=0;
-     for(let i=0;i<data.length;i++){
-       const t=i/ctx.sampleRate,grain=noise();low+=.13*(grain-low);
-       const hit=Math.exp(-t*7/decay),tail=Math.exp(-t*3/decay);
-       const crunch=material==='water'?low*2:grain*.34+low*.5;
-       data[i]=(1-Math.exp(-t*2400))*(hit*(.59*Math.sin(2*Math.PI*bass*t)+crunch)+tail*(material==='water'?low:.26*Math.sin(2*Math.PI*ring*t)));
-     }impactClips.set(material,buffer);
-   }
-   const src=ctx.createBufferSource(),gain=ctx.createGain();src.buffer=impactClips.get(material);
-   src.playbackRate.value=1.08-Math.min(.21,dv*.009);gain.gain.value=Math.min(1.65,.12+.35*Math.sqrt(dv));
-   src.connect(gain);gain.connect(master);tails.add(src);
-   src.onended=()=>{tails.delete(src);src.disconnect();gain.disconnect();};src.start();
+   const heavy=dv>=4,clips=contactRecordings[material]||contactRecordings.concrete;
+   const volume=Math.min(1.22,.14+.27*Math.sqrt(dv));
+   playImpact(clips[heavy?1:0],volume);
+   if(heavy&&(material==='concrete'||material==='parapet'))playImpact('body_bump',volume*.50);
  }
  function pop(strength){
    const s=ctx.createBufferSource(),level=ctx.createGain();s.buffer=popBuffers[popIndex++%popBuffers.length];
