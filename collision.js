@@ -121,9 +121,9 @@ window.HanCollision = (() => {
     (road.damagedTiles??=new Set()).add(tile);road.railRevision=(road.railRevision||0)+1;
     return true;
   }
-  function networkRails(b,road,height){
+  function networkRails(b,road,height,panels){
     let cache=localBorders.get(b);
-    if(!cache||cache.road!==road||Math.hypot(cache.x-b.x,cache.z-b.z)>6){
+    if(!panels&&(!cache||cache.road!==road||Math.hypot(cache.x-b.x,cache.z-b.z)>6)){
       const lines=[];
       for(const e of road.edgesIn(b.x-12,b.z-12,b.x+12,b.z+12))
         for(const r of road.roadBorders(e)){
@@ -136,11 +136,15 @@ window.HanCollision = (() => {
     const axes=basis(b),radius=Math.hypot(b.halfWidth,b.halfLength);
     for(let pass=0;pass<3;pass++){
       let changed=false;
-      for(const r of cache.lines){
+      for(const r of panels||cache.lines){
         if(road.brokenRails?.has(r.key))continue;
         const [x,y,z]=r.a,dx=r.b[0]-x,dz=r.b[2]-z,len=Math.hypot(dx,dz),tx=dx/len,tz=dz/len;
         const t=(b.x-x)*tx+(b.z-z)*tz,n=(b.x-x)*r.nx+(b.z-z)*r.nz;
-        if(t< -radius||t>len+radius||Math.abs(n)>radius+.2||Math.abs(height-y-(r.b[1]-y)*Math.min(1,Math.max(0,t/len)))>1.7)continue;
+        if(t< -radius||t>len+radius||Math.abs(n)>radius+.2)continue;
+        const base=y+(r.b[1]-y)*Math.min(1,Math.max(0,t/len));
+        const top=base+(r.material==='curb'?r.step:r.material==='steel'?.71:.92);
+        const bottom=base-(r.material==='parapet'?.81:.03);
+        if(height>top+.025 || height+1.415<bottom)continue;
         // Clip the car hull to the finite rail. End caps stay passable on
         // the open side of a ramp without extending a phantom wall beyond it.
         let poly=corners(b,axes).map(p=>({...p,t:(p.x-x)*tx+(p.z-z)*tz}));
@@ -175,7 +179,7 @@ window.HanCollision = (() => {
           if(n>0||speed<=0)continue;
         }
         if(r.material==='steel'||r.material==='parapet'){
-          const e=r.edge,size=road.cellSize,tile=Math.floor((e.ax+e.bx)/(2*size))+','+Math.floor((e.az+e.bz)/(2*size));
+          const e=r.edge,size=road.cellSize,tile=r.tile??(Math.floor((e.ax+e.bx)/(2*size))+','+Math.floor((e.az+e.bz)/(2*size)));
           if(breakRail(b,road,r.key,r.material,normal,contact.x,contact.z,tile))continue;
         }
         resolve(b,null,normal,contact.x,contact.z,depth,r.material);
@@ -190,19 +194,13 @@ window.HanCollision = (() => {
     const near=road.network?road.locate(b):road.nearest(b.x,b.z,b.s);
     b.s=near.s; b.lateral=near.lateral;
     if(road.network){
-      const e=near.e,n=near.raw<0?e.a:e.b,excess=near.raw<0?-near.raw:near.raw-e.len;
-      if(excess>0){
-        const allowed=road.endAllowance(e,n,b.x,b.z);
-        if(excess>allowed){
-          const dir=n===e.a?-1:1,normal={x:e.tx*dir,z:e.tz*dir};
-          const overshoot=excess-allowed;
-          resolve(b,null,normal,b.x+normal.x*b.halfLength,b.z+normal.z*b.halfLength,overshoot);
-          b.x-=normal.x*(overshoot-Math.max(0,overshoot-.0015)*.85);
-          b.z-=normal.z*(overshoot-Math.max(0,overshoot-.0015)*.85);
-        }
-      }
+      const e=near.e;
       networkRails(b,road,road.at(e,near.s).y);
       const q=road.projectEdge(e,b.x,b.z);b.s=q.s;b.lateral=q.lateral;return;
+    }
+    if(road.tourBorders){
+      networkRails(b,road,road.height(b.s),road.tourBorders(b.s));
+      const q=road.nearest(b.x,b.z,b.s);b.s=q.s;b.lateral=q.lateral;return;
     }
     const side=Math.sign(near.lateral)||1, half=road.lanesAt(b.s)*1.75;
     const limit=half+(side>0?.19:.53);

@@ -67,5 +67,22 @@ window.createHanWorld=function(id){
      -.010*Math.exp(-joint*joint/.023);
  };
  world.tourPanel=(s,side)=>Math.floor(Math.max(0,s)/6)+'/'+side;
+ const panelCache=new Map();
+ world.tourBorders=station=>{
+   const section=Math.floor(station/6);
+   if(panelCache.has(section))return panelCache.get(section);
+   const lines=[];
+   for(let i=Math.max(0,section-2);i<=section+2&&i*6<world.length;i++){
+     const s=i*6,t=Math.min(world.length,s+6);
+     for(const side of [-1,1]){
+       const offset=k=>side*(world.lanesAt(k)*1.75+(side>0?.19:.53));
+       const a=world.point(s,offset(s)),b=world.point(t,offset(t));
+       const dx=b.x-a.x,dz=b.z-a.z,len=Math.hypot(dx,dz);if(len<.001)continue;
+       lines.push({a:[a.x,a.y,a.z],b:[b.x,b.y,b.z],nx:side*dz/len,nz:-side*dx/len,
+         material:'parapet',key:world.tourPanel(s,side),tile:Math.floor(s/288)});
+     }
+   }
+   panelCache.set(section,lines);return lines;
+ };
  return world;
 };

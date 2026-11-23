@@ -3,7 +3,7 @@
 window.fitAvanteN=function fitAvanteN(T,vehicle){
   const palette={paint:0xa6cedf,rim:0xc1c9cf,graphite:0x33383b,black:0x15191c,rubber:0x212426,
     mesh:0x40464a,glass:0x273842,lamp:0x32121b,tail:0xed1730,brake:0xe62639,drl:0xeefaff,
-    trim:0xed342d,steel:0xaaa8a4,pipe:0x262526,plate:0xdadcd7,hot:0x21100c};
+    trim:0xed342d,steel:0xaaa8a4,pipe:0x24272a,plate:0xdadcd7,hot:0x090a0b};
   const materials={};
   for(const [name,color] of Object.entries(palette)){
     const polished=['paint','glass','rim','steel','lamp','tail','brake'].includes(name);
@@ -11,6 +11,13 @@ window.fitAvanteN=function fitAvanteN(T,vehicle){
     const m=polished?new T.MeshPhysicalMaterial({clearcoat:1,clearcoatRoughness:.11}):new T.MeshStandardMaterial();
     m.name=name;m.color.setHex(color);m.metalness=metalness;m.roughness=polished?.26:.52;
     m.side=T.DoubleSide;
+    if(name==='paint'){m.metalness=.32;m.roughness=.31;m.clearcoatRoughness=.085;}
+    if(name==='glass'){
+      m.color.setHex(0x344b58);m.metalness=.12;m.roughness=.085;
+      m.ior=1.52;m.clearcoatRoughness=.05;m.transparent=true;m.opacity=.76;
+      m.depthWrite=false;m.side=T.FrontSide;
+    }
+    if(name==='graphite'){m.metalness=.46;m.roughness=.30;}
     if(['brake','tail','drl','hot'].includes(name)){
       m.emissive.setHex(({brake:0xde1525,tail:0xc5131e,drl:0xd8f0ff,hot:0xff7629})[name]);
       m.emissiveIntensity=name==='hot'?0:name==='brake'?.45:name==='drl'?1.25:.88;
@@ -29,7 +36,9 @@ window.fitAvanteN=function fitAvanteN(T,vehicle){
   for(const [key,[p,n,ix]] of Object.entries(AVANTE_N_MESH)){
     const [part,finish]=key.split(':'),geo=new T.BufferGeometry();
     geo.setAttribute('position',new T.Float32BufferAttribute(Float32Array.from(bytes(p,Int16Array),v=>v*.001),3));
-    geo.setAttribute('normal',new T.BufferAttribute(bytes(n,Int8Array),3,true));
+    // Damage recomputes area-weighted normals. Millimetre-scale triangles need
+    // float accumulators even though the immutable packet uses signed bytes.
+    geo.setAttribute('normal',new T.Float32BufferAttribute(Float32Array.from(bytes(n,Int8Array),v=>v/127),3));
     geo.setIndex(new T.BufferAttribute(bytes(ix,Uint16Array),1));geo.computeBoundingSphere();
     const mesh=new T.Mesh(geo,materials[finish]);mesh.name=key;mesh.castShadow=mesh.receiveShadow=true;
     if(part==='body'){body.add(mesh);continue;}
@@ -41,8 +50,10 @@ window.fitAvanteN=function fitAvanteN(T,vehicle){
   g.textAlign='center';g.textBaseline='middle';g.font='bold 77px "Malgun Gothic",sans-serif';g.fillStyle='#182127';g.fillText('381가 0724',268,58);
   const texture=new T.CanvasTexture(canvas);texture.colorSpace=T.SRGBColorSpace;
   const plate=new T.MeshStandardMaterial({map:texture,roughness:.46,metalness:.08});
-  for(const [end,y,z] of [[1,.423,2.365],[-1,.492,-2.371]]){
-    const mesh=new T.Mesh(new T.PlaneGeometry(.515,.109),plate);mesh.position.set(0,y,z);mesh.rotation.y=end<0?Math.PI:0;body.add(mesh);
+  const litPlate=plate.clone();litPlate.emissiveMap=texture;
+  litPlate.emissive.setHex(0xbecde3);litPlate.emissiveIntensity=.16;
+  for(const [end,y,z] of [[1,.423,2.365],[-1,.492,-2.366]]){
+    const mesh=new T.Mesh(new T.PlaneGeometry(.515,.109),end<0?litPlate:plate);mesh.position.set(0,y,z);mesh.rotation.y=end<0?Math.PI:0;body.add(mesh);
   }
   const suspension=vehicle.updateChassis;
   vehicle.updateChassis=car=>{

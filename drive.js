@@ -208,7 +208,8 @@ window.DriveModel = (() => {
       this.x+=dx;this.z+=dz;HanCollision.rail(this,this.road);
       this.road.scenery?.hit(this,this.road.height(this.s)+this.heave);
       const road=this.road,e=road.current;
-      if(road.floorBelow && (e.flags&32) && Math.abs(this.lateral)>road.widthAt(e,this.s)+.42){
+      if(road.floorBelow && (e.flags&32 || road.height(this.s)>1.6) &&
+          (Math.abs(this.lateral)>road.widthAt(e,this.s)+.42 || this.s===0 || this.s===e.len)){
         const y=road.height(this.s),support=road.floorBelow(this.x,this.z,y+.15);
         if(support.y<y-.38){
           this.flight={y:y+this.heave,vy:this.heaveRate+this.u*grade,vx:dx/dt,vz:dz/dt};

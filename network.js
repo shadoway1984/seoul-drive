@@ -247,17 +247,6 @@ window.makeSeoulNetwork=function(data,base){
    }
    contactEdge=best.e;return best;
  };
- // A connected way can meet the current way around a corner. Its presence alone
- // does not make the infinite extension of the old centreline drivable.
- world.endAllowance=(edge,node,px,pz)=>{
-   let radius=0;
-   for(const other of adjacent(edge,node)){
-     const q=project(other,px,pz);
-     if(q.raw>=-.05&&q.raw<=other.len+.05&&Math.abs(q.lateral)<=other.half)return Infinity;
-     radius=Math.max(radius,Math.min(edge.half,other.half));
-   }
-   return Math.sqrt(Math.max(0,radius*radius-project(edge,px,pz).lateral**2));
- };
  Object.assign(world,makeSeoulRoadGeometry(world));
  world.floorBelow=(x,z,ceiling)=>{
    const water=!!world.isWater?.(x,z);
