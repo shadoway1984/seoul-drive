@@ -3,7 +3,7 @@
 window.buildCockpit=function(T){
  const group=new T.Group(),shaft=new T.Group(),wheel=new T.Group();
  group.name='Avante N cockpit';wheel.name='Avante N steering wheel';
- shaft.position.set(-.012,-.262,-.680);shaft.rotation.x=-.22;shaft.add(wheel);group.add(shaft);
+ shaft.position.set(-.012,-.352,-.680);shaft.rotation.x=-.22;shaft.add(wheel);group.add(shaft);
  const {colors,mesh}=AVANTE_CABIN,materials={};
  function bytes(base64){return Uint8Array.from(atob(base64),s=>s.charCodeAt(0)).buffer;}
  for(const [name,rgb] of Object.entries(colors)){
@@ -76,6 +76,9 @@ window.buildCockpit=function(T){
  }
  let lastGauge='',lastGaugeTime=-Infinity,lastNav=-Infinity,lastX=NaN,lastZ=NaN,lastYaw=NaN,lastRoad=null,lastMinute=-1;
  function update(car,road,force=false){
+   // A narrower windshield needs a wider framing to retain both screens.
+   const portrait=clamp((1.03-innerWidth/innerHeight)/.53,0,1);
+   group.position.set(-.16*portrait,-.12*portrait,-.40*portrait);
    wheel.rotation.z=clamp(car.steer*12.5,-2*pi,2*pi);
    const now=performance.now(),speed=Math.round(Math.abs(car.u)*3.6),rpm=Math.max(0,car.rpm),gear=car.forward?'D'+car.gear:'R';
    const sig=speed+'/'+Math.round(rpm/10)+'/'+gear;
