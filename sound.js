@@ -77,6 +77,27 @@ window.createSeoulSound=function(ctx){
    }
    return buffer;
  }
+ // Loop the sustained squeal and overlap its ends so a long slide has no seam.
+ function skidVoice(clip){
+   const wave=recordedBuffer(clip).getChannelData(0),rate=clip.rate;
+   const first=Math.round(.27*rate),last=Math.round(.89*rate),fade=Math.round(.065*rate);
+   const loop=ctx.createBuffer(1,last-first-fade,rate),out=loop.getChannelData(0);
+   for(let i=0;i<out.length;i++){
+     const j=first+fade+i;
+     if(j<last-fade){out[i]=wave[j];continue;}
+     const k=j-(last-fade),phase=k*Math.PI/(2*fade);
+     out[i]=wave[j]*Math.cos(phase)+wave[first+k]*Math.sin(phase);
+   }
+   const source=ctx.createBufferSource(),tone=filter('lowpass',6800,.65),level=gain();
+   source.buffer=loop;source.loop=true;source.connect(tone);tone.connect(level);level.connect(master);source.start();
+   return (amount,grip,inside)=>{
+     const now=ctx.currentTime;
+     set(level.gain,amount*(.11+.84*grip*grip)*(inside?.56:1),now,amount>0?.028:.045);
+     set(tone.frequency,(inside?1900:2950)+grip*grip*(inside?1250:4300),now,.08);
+     set(source.playbackRate,.85+.23*amount,now,.07);
+   };
+ }
+ const skid=window.SEOUL_TIRE_RECORDING?skidVoice(window.SEOUL_TIRE_RECORDING):null;
  const exhaustBus=ctx.createGain(),exhaustCabin=filter('lowpass',6300,.65);
  exhaustBus.connect(exhaustCabin);exhaustCabin.connect(master);
  function avante(){
@@ -184,12 +205,14 @@ window.createSeoulSound=function(ctx){
    if(p.cancelAndHoldAtTime)p.cancelAndHoldAtTime(t);
    else{const level=p.value;p.cancelScheduledValues(t);p.setValueAtTime(level,t);}
    p.linearRampToValueAtTime(0,t+.025);running=false;
+   skid?.(0,1,false);
    for(const s of tails)s.stop();tails.clear();
  }
  function update(car,cars,kind,gas,enabled,pulse=0,inside=false){
    const t=ctx.currentTime;
    if(!enabled){quiet();return;}
    if(!running){master.gain.cancelScheduledValues(t);set(master.gain,.70,t,.045);running=true;}
+   skid?.(car.flight||car.stranded?0:(car.tireSqueal||0),car.road.weatherGrip??1,inside);
    playerMotor(kind===0,car.rpm,gas,car.shiftTime>0,inside);
    own(kind===0?4:kind,car.rpm,Math.abs(car.u),car.shiftTime>0?gas*.10:gas,.35,0,1);
    if(kind===0&&pulse>0)pop(pulse);

@@ -33,7 +33,7 @@ window.DriveModel = (() => {
       this.u=this.v=this.omega=this.steer=this.roll=this.pitch=0;
       this.heave=this.heaveRate=this.rollRate=this.pitchRate=0;
       this.forward=true;this.gear=1;this.rpm=900;this.shiftTime=this.distance=0;
-      this.loadShift=this.lateralG=this.slip=this.braking=0;
+      this.loadShift=this.lateralG=this.slip=this.braking=this.tireSqueal=0;
       this.flight=null;this.stranded=false;this.landingTime=0;this.pendingContact=null;this.climbing=new Set();this.driveForce=0;
       this.wheels=[true,false].flatMap(front=>[-1,1].map(side=>makeWheel(front,side,this.mass)));
     }
@@ -135,7 +135,7 @@ window.DriveModel = (() => {
       this.roll+=this.rollRate*dt;this.pitch+=this.pitchRate*dt;
     }
     tires(input,torque,dt){
-      let forward=0,left=0,yawMoment=0,slip=0;
+      let forward=0,left=0,yawMoment=0,slip=0,squeal=0;
       for(const w of this.wheels){
         const turn=Math.tan(this.steer);
         const ackermann=w.front?Math.atan2(wheelbase*turn,wheelbase-w.x*turn):0;
@@ -165,9 +165,17 @@ window.DriveModel = (() => {
         const scrape=.38*w.skidForce/Math.max(.5,Math.hypot(axial,side));
         const f=fx*c-fy*s-scrape*axial,g=fx*s+fy*c-scrape*side;
         forward+=f;left+=g;yawMoment+=w.z*g-w.x*f;
-        if(w.grounded)slip=Math.max(slip,Math.abs(w.slipAngle)-.055,Math.abs(w.slipRatio)-.11);
+        if(w.grounded){
+          slip=Math.max(slip,Math.abs(w.slipAngle)-.055,Math.abs(w.slipRatio)-.11);
+          // Contact-patch speed suppresses parking scrub but allows wheelspin at launch.
+          const sliding=Math.hypot(t,w.spin*w.radius-l);
+          const excess=Math.max((Math.abs(w.slipAngle)-.065)/.22,(Math.abs(w.slipRatio)-.09)/.42);
+          const contact=clamp(w.load/(this.mass*gravity*.18),0,1);
+          squeal=Math.max(squeal,clamp(excess,0,1)*clamp((sliding-.75)/3.2,0,1)*contact);
+        }
       }
       this.slip=clamp(slip,0,.38);
+      this.tireSqueal=squeal;
       return {forward,left,yawMoment};
     }
     step(input,dt){
