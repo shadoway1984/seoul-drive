@@ -4,7 +4,49 @@ window.createSeoulFurniture=function(T,world){
   const data=window.SEOUL_STREET_OBJECTS;
   const bark=new T.MeshStandardMaterial({color:0x635444,roughness:1});
   const metal=new T.MeshStandardMaterial({color:0x727c80,metalness:.45,roughness:.53});
-  const lens=new T.MeshStandardMaterial({color:0xe6e4ce,emissive:0xd5a669,emissiveIntensity:.18});
+  const lens=new T.MeshStandardMaterial({color:0xe6e4ce,emissive:0xffddaa,emissiveIntensity:1});
+  lens.onBeforeCompile=shader=>{
+    shader.uniforms.daylight=HanDaylight;
+    shader.fragmentShader='uniform float daylight;\n'+shader.fragmentShader.replace('#include <emissivemap_fragment>',
+      '#include <emissivemap_fragment>\ntotalEmissiveRadiance*=4.*(1.-daylight);');
+  };
+  const halo=new T.ShaderMaterial({transparent:true,depthWrite:false,blending:T.AdditiveBlending,
+    uniforms:{daylight:HanDaylight},vertexShader:`varying vec2 spot;void main(){vec4 p=modelViewMatrix*instanceMatrix*vec4(0.,0.,0.,1.);
+      spot=uv-.5;p.xy+=position.xy*3.4;gl_Position=projectionMatrix*p;}`,
+    fragmentShader:`uniform float daylight;varying vec2 spot;void main(){float r=length(spot)*2.;
+      float a=(exp(-r*r*56.)+.21*exp(-r*r*6.))*(1.-smoothstep(.75,1.,r));
+      gl_FragColor=vec4(1.,.83,.59,a*(1.-daylight));}`});
+  const haloPlane=new T.PlaneGeometry(1,1);
+  const size=512,scale=4,pixels=new Uint8Array(size*size*4);
+  const lightMap=new T.DataTexture(pixels,size,size);lightMap.minFilter=lightMap.magFilter=T.LinearFilter;
+  const origin=new T.Vector2(),nearbyHeads=[];
+  const lampHeight=label=>/대교|고가|교량/.test(label)?9:7.7;
+  function lightTile(i,j){
+    origin.set((i+.5)*260-size*scale/2,(j+.5)*260-size*scale/2);
+    pixels.fill(0);nearbyHeads.length=0;
+    for(let tx=i-4;tx<=i+4;tx++)for(let tz=j-4;tz<=j+4;tz++){
+      const rows=data.tiles[tx+','+tz]||[];
+      for(let n=0;n<rows.length;n+=5){
+        if(rows[n+2]>=0)continue;
+        const a=rows[n+4]/1000,dx=Math.sin(a),dz=Math.cos(a),base=rows[n+3]/100;
+        const x=tx*260+rows[n]/4+2.4*dx,z=tz*260+rows[n+1]/4+2.4*dz;
+        if(Math.abs(tx-i)<=1&&Math.abs(tz-j)<=1){
+          const label=data.labels[-rows[n+2]-1];
+          nearbyHeads.push({x,z,y:base+lampHeight(label)+.32});
+        }
+        const gx=(x+2*dx-origin.x)/scale-.5,gz=(z+2*dz-origin.y)/scale-.5;
+        for(let u=Math.max(0,Math.ceil(gx-5));u<=Math.min(size-1,gx+5);u++)
+          for(let v=Math.max(0,Math.ceil(gz-5));v<=Math.min(size-1,gz+5);v++){
+            const d=((u-gx)**2+(v-gz)**2)/25;
+            if(d>=1)continue;
+            const at=(v*size+u)*4,level=Math.round(255*(1-d)**3);
+            if(level>pixels[at]){pixels[at]=level;pixels[at+1]=Math.max(0,Math.min(255,Math.round(base+64)));}
+          }
+      }
+    }
+    lightMap.needsUpdate=true;
+  }
+  world.streetLampHeads=nearbyHeads;
   const trunk=new T.CylinderGeometry(.095,.16,1,7),pole=new T.CylinderGeometry(.075,.14,1,8);
   const arm=new T.CylinderGeometry(.046,.056,1,7);
   function lampMesh(name){
@@ -72,21 +114,24 @@ window.createSeoulFurniture=function(T,world){
         stem.position.set(x,base+h*.68,z);put(species===0?narrowCrown:broadCrown,leaves,tint);
       }else{
         const height=rows[k+3]/100,angle=rows[k+4]/1000;
-        const nx=Math.sin(angle),nz=Math.cos(angle),h=/대교|고가|교량/.test(label)?9:7.7;
+        const nx=Math.sin(angle),nz=Math.cos(angle),h=lampHeight(label);
         rod(pole,metal,x,height,z,x,height+h,z);
         world.scenery?.post(group,x,z,.14,height,height+h,'steel');
         rod(arm,metal,x,height+h-.4,z,x+1.1*nx,height+h+.28,z+1.1*nz);
         rod(arm,metal,x+1.1*nx,height+h+.28,z+1.1*nz,x+2.3*nx,height+h+.34,z+2.3*nz);
         stem.position.set(x+2.4*nx,height+h+.32,z+2.4*nz);stem.scale.set(1,1,1);
         stem.rotation.set(0,Math.atan2(nx,nz),0);put(head,metal);put(diffuser,lens);
+        stem.position.y-=.12;put(haloPlane,halo);
       }
     }
     for(const [geometry,p] of parts){
       const mesh=new T.InstancedMesh(geometry,p.material,p.matrices.length);
       p.matrices.forEach((matrix,n)=>mesh.setMatrixAt(n,matrix));
       p.colors.forEach((color,n)=>mesh.setColorAt(n,color));mesh.computeBoundingSphere();
-      mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);
+      mesh.castShadow=geometry!==haloPlane;mesh.receiveShadow=mesh.castShadow;
+      if(geometry===haloPlane)mesh.name='Streetlamp halos';
+      group.add(mesh);
     }
   }
-  return {add,has:k=>!!data.tiles[k]};
+  return {add,has:k=>!!data.tiles[k],lightTile,lightMap,origin,extent:size*scale};
 };

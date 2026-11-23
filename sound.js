@@ -1,8 +1,8 @@
 /* Player engine and collision sounds use recorded samples. */
 window.createAvanteExhaust=function(){
- let loadTime,armed,lastGear,lastRpm,clock,lockout,next,pops,power,glow;
+ let armed,lastGear,lastRpm,clock,next,pops,power,glow;
  function reset(){
-   loadTime=0;armed=false;lastGear=0;lastRpm=0;clock=0;lockout=0;next=0;pops=0;power=0;glow=0;
+   armed=false;lastGear=0;lastRpm=0;clock=0;next=0;pops=0;power=0;glow=0;
  }
  reset();
  function step(car,gas,dt,active){
@@ -10,22 +10,21 @@ window.createAvanteExhaust=function(){
    const elapsed=Math.max(0,Math.min(.15,dt));
    clock+=elapsed;glow=Math.max(0,glow-elapsed*19);
    const moving=Math.abs(car.u)>4,rpm=car.rpm;
-   if(gas>.48&&moving&&rpm>2900){
-     loadTime+=elapsed;if(loadTime>.14)armed=true;
-   }else if(gas<.18||!moving||rpm<2300){loadTime=0;}
+   if(gas>.12)armed=rpm>=2000;
    let pulse=0;
    const shift=lastGear>0&&car.gear>lastGear&&moving&&gas>.55&&Math.max(lastRpm,rpm)>4500;
-   if(shift&&clock>=lockout){
+   if(shift){
      pulse=.88+Math.min(.12,Math.max(0,lastRpm-4500)/14000);
-     pops=0;armed=false;loadTime=0;lockout=clock+.26;
-   }else if(gas<.18&&armed){
+     pops=0;
+   }else if(gas<.07&&armed){
      armed=false;
-     if(moving&&rpm>3000&&clock>=lockout){
-       pops=rpm>4700?3:2;power=Math.min(.83,.45+(rpm-3000)/7500);
-       next=clock+.022;lockout=clock+.52;
+     if(Math.max(lastRpm,rpm)>=2000){
+       const lift=Math.max(lastRpm,rpm);
+       pops=lift>=4700?3:lift>=2800?2:1;power=Math.min(.86,.46+(lift-2000)/7800);
+       next=clock;
      }
    }
-   if(gas>.35||rpm<2100||!moving)pops=0;
+   if(gas>.12)pops=0;
    if(pops&&clock>=next){
      pulse=power;pops--;power*=.66;
      next=clock+(pops===1?.122:.077);
@@ -92,7 +91,7 @@ window.createSeoulSound=function(ctx){
    source.buffer=loop;source.loop=true;source.connect(tone);tone.connect(level);level.connect(master);source.start();
    return (amount,grip,inside)=>{
      const now=ctx.currentTime;
-     set(level.gain,amount*(.11+.84*grip*grip)*(inside?.56:1),now,amount>0?.028:.045);
+     set(level.gain,amount*(.08+.60*grip*grip)*(inside?.56:1),now,amount>0?.04:.05);
      set(tone.frequency,(inside?1900:2950)+grip*grip*(inside?1250:4300),now,.08);
      set(source.playbackRate,.85+.23*amount,now,.07);
    };
@@ -135,15 +134,7 @@ window.createSeoulSound=function(ctx){
    };
  }
  const playerMotor=avante();
- const popBuffers=Array.from({length:4},(_,i)=>{
-   const b=ctx.createBuffer(1,Math.ceil(ctx.sampleRate*.165),ctx.sampleRate),a=b.getChannelData(0);
-   let airLow=0;
-   for(let j=0;j<a.length;j++){
-     const t=j/ctx.sampleRate,n=noise();airLow+=.37*(n-airLow);
-     const attack=1-Math.exp(-t*3200),body=Math.sin(2*Math.PI*((119+i*7)*t+.73*(1-Math.exp(-t*70))));
-     a[j]=attack*(.64*body*Math.exp(-t*(39+i))+.40*airLow*Math.exp(-t*62)+.30*(n-airLow)*Math.exp(-t*153));
-   }return b;
- });
+ const popBuffers=(window.AVANTE_POP_RECORDINGS||[]).map(recordedBuffer);
  const tails=new Set();let popIndex=0;
  const impactClips=new Map(),lastImpact=new Map();
  const contactRecordings={
@@ -167,8 +158,9 @@ window.createSeoulSound=function(ctx){
    if(heavy&&(material==='concrete'||material==='parapet'))playImpact('body_bump',volume*.50);
  }
  function pop(strength){
+   if(!popBuffers.length)return;
    const s=ctx.createBufferSource(),level=ctx.createGain();s.buffer=popBuffers[popIndex++%popBuffers.length];
-   s.playbackRate.value=.91+.12*strength+.035*noise();level.gain.value=.72*strength;
+   s.playbackRate.value=1;level.gain.value=.92*strength;
    s.connect(level);level.connect(exhaustBus);tails.add(s);
    s.onended=()=>{s.disconnect();level.disconnect();tails.delete(s);};s.start();
  }

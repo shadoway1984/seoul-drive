@@ -34,6 +34,7 @@ window.DriveModel = (() => {
       this.heave=this.heaveRate=this.rollRate=this.pitchRate=0;
       this.forward=true;this.gear=1;this.rpm=900;this.shiftTime=this.distance=0;
       this.loadShift=this.lateralG=this.slip=this.braking=this.tireSqueal=0;
+      this.sustainedSkid=0;
       this.flight=null;this.stranded=false;this.landingTime=0;this.pendingContact=null;this.climbing=new Set();this.driveForce=0;
       this.wheels=[true,false].flatMap(front=>[-1,1].map(side=>makeWheel(front,side,this.mass)));
     }
@@ -168,14 +169,18 @@ window.DriveModel = (() => {
         if(w.grounded){
           slip=Math.max(slip,Math.abs(w.slipAngle)-.055,Math.abs(w.slipRatio)-.11);
           // Contact-patch speed suppresses parking scrub but allows wheelspin at launch.
-          const sliding=Math.hypot(t,w.spin*w.radius-l);
-          const excess=Math.max((Math.abs(w.slipAngle)-.065)/.22,(Math.abs(w.slipRatio)-.09)/.42);
+          // Ordinary cornering needs slip angle even while the tire still grips.
+          // Only excess friction demand plus sustained relative motion is audible.
+          const saturation=clamp((magnitude/Math.max(1,maxForce)-1.08)/.40,0,1);
+          const corner=clamp((Math.abs(w.slipAngle)-.16)/.24,0,1)*clamp((Math.abs(t)-2.4)/4,0,1);
+          const spin=clamp((Math.abs(w.slipRatio)-.18)/.45,0,1)*clamp((Math.abs(w.spin*w.radius-l)-1.8)/4,0,1);
           const contact=clamp(w.load/(this.mass*gravity*.18),0,1);
-          squeal=Math.max(squeal,clamp(excess,0,1)*clamp((sliding-.75)/3.2,0,1)*contact);
+          squeal=Math.max(squeal,Math.max(corner,spin)*saturation*contact);
         }
       }
       this.slip=clamp(slip,0,.38);
-      this.tireSqueal=squeal;
+      this.sustainedSkid=squeal>.05?Math.min(.13,this.sustainedSkid+dt):0;
+      this.tireSqueal=squeal*clamp((this.sustainedSkid-.06)/.07,0,1);
       return {forward,left,yawMoment};
     }
     step(input,dt){

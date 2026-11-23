@@ -8,6 +8,8 @@ window.drawSeoulStreets=function(T,scene,world){
  for(const k in colors)colors[k]=new T.Color(colors[k]);
  let previous='',revision=0;
  mat.onBeforeCompile=shader=>{
+   shader.uniforms.lampMap={value:furniture.lightMap};shader.uniforms.lampOrigin={value:furniture.origin};
+   shader.uniforms.daylight=HanDaylight;
    shader.uniforms.roadWet=SeoulWeather.uniforms.wet;shader.uniforms.roadSnow=SeoulWeather.uniforms.snow;
    shader.vertexShader='varying vec3 roadWorld;attribute float pavement;varying float surfaceMask;\n'+shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\nroadWorld=position;surfaceMask=pavement;');
    shader.fragmentShader='varying vec3 roadWorld;varying float surfaceMask;uniform float roadWet,roadSnow;\n'+shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
@@ -16,6 +18,13 @@ window.drawSeoulStreets=function(T,scene,world){
       diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.62,.69,.75),roadSnow*surfaceMask*(.63+.12*grain));
       float fade=1.0-smoothstep(14.0,54.0,distance(cameraPosition,roadWorld));diffuseColor.rgb*=1.0+(grain-.5)*.26*fade;`);
    shader.fragmentShader=shader.fragmentShader.replace('#include <roughnessmap_fragment>','#include <roughnessmap_fragment>\nroughnessFactor=mix(roughnessFactor,.22,roadWet*surfaceMask);');
+   shader.fragmentShader='uniform sampler2D lampMap;uniform vec2 lampOrigin;uniform float daylight;\n'+shader.fragmentShader.replace('#include <emissivemap_fragment>',`#include <emissivemap_fragment>
+     vec2 uvLamp=(roadWorld.xz-lampOrigin)/${furniture.extent.toFixed(1)};
+     vec2 lamp=texture2D(lampMap,uvLamp).rg;
+     float sameLevel=1.-smoothstep(1.8,4.5,abs(roadWorld.y-(lamp.g*255.-64.)));
+     if(all(greaterThanEqual(uvLamp,vec2(0.)))&&all(lessThanEqual(uvLamp,vec2(1.))))
+       totalEmissiveRadiance+=diffuseColor.rgb*vec3(3.2,2.4,1.52)*lamp.r*sameLevel*(1.-daylight);
+   `);
  };
  const signalFace=new T.Color(0x263438),signalLens=new T.Color(0x1d8e63);
  function make(edges,k){
@@ -146,7 +155,7 @@ window.drawSeoulStreets=function(T,scene,world){
      }
      world.damagedTiles?.clear();revision=world.railRevision;previous='';
    }
-   if(current===previous)return;previous=current;
+   if(current===previous)return;previous=current;furniture.lightTile(i,j);
    const wanted=new Set();for(let x=i-3;x<=i+3;x++)for(let z=j-3;z<=j+3;z++){const k=x+','+z;if(world.grid.has(k)||furniture.has(k)||SeoulTransit.has(k))wanted.add(k);}
    for(const [k,g] of live)if(!wanted.has(k)){world.scenery?.remove(g);g.removeFromParent();g.traverse(o=>{if(o.isMesh&&!o.isInstancedMesh)o.geometry.dispose();if(o.isInstancedMesh)o.dispose();});live.delete(k);}
    for(const k of wanted)if(!live.has(k))live.set(k,make(world.grid.get(k)||[],k));

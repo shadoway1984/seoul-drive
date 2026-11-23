@@ -160,7 +160,17 @@ window.buildAtmosphere = function buildAtmosphere(T, scene, renderer, world) {
   const water=new T.Mesh(waterGeometry(),waterMat);water.name="Han River water";root.add(water);
   const dir=new T.Vector3(),up=new T.Vector3(),look=new T.Vector3(),normal=new T.Vector3(0,1,0),plane=new T.Plane(),clip=new T.Vector4(),q=new T.Vector4();
   const waterPoint=new T.Vector3(0,waterY,0);let frame=0,lastLampIndex=null;
-  function moveLamps(s){
+  let lastX=Infinity,lastZ=Infinity;
+  function moveLamps(s,car){
+    if(world.network){
+      if(Math.hypot(car.x-lastX,car.z-lastZ)<3)return;
+      lastX=car.x;lastZ=car.z;
+      const y=world.height(s);
+      const nearest=(world.streetLampHeads||[]).map(p=>({p,d:(p.x-car.x)**2+(p.z-car.z)**2+(p.y-y-8)**2})).filter(v=>v.d<42**2).sort((a,b)=>a.d-b.d);
+      streetLights.forEach((light,i)=>{const head=nearest[i]?.p;light.visible=!!head;
+        if(head)light.position.set(head.x,head.y-.18,head.z);});
+      return;
+    }
     const lampIndex=Math.floor(s/48);if(lampIndex===lastLampIndex)return;
     lastLampIndex=lampIndex;
     for(let i=0;i<3;i++){
@@ -174,7 +184,7 @@ window.buildAtmosphere = function buildAtmosphere(T, scene, renderer, world) {
   }
   function update(cam,car,time,high,cockpit){
     const s=car.s, base=world.point(s,0), dx=Math.sin(car.yaw),dz=Math.cos(car.yaw);
-    moveLamps(s);
+    moveLamps(s,car);
     for(let i=0;i<2;i++){
       const side=i===0?-1:1, l=headlights[i],offset=.74*side;
       l.position.set(car.x+2.00*dx+dz*offset,base.y+.66,car.z+2.00*dz-dx*offset);
