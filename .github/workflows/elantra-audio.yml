@@ -6,7 +6,7 @@ on:
       - '.github/workflows/elantra-audio.yml'
       - 'tools/prepare-elantra.py'
 permissions:
-  contents: read
+  contents: write
 jobs:
   samples:
     runs-on: ubuntu-latest
@@ -21,3 +21,11 @@ jobs:
         with:
           name: elantra-recordings
           path: elantra-recordings.js
+      - name: Include generated recordings in the static game
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git add -- elantra-recordings.js
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Package both CC0 Elantra recordings"
+            git push origin HEAD:main
+          fi
