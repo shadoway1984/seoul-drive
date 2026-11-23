@@ -1,0 +1,23 @@
+name: Prepare Elantra recordings
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/elantra-audio.yml'
+      - 'tools/prepare-elantra.py'
+permissions:
+  contents: read
+jobs:
+  samples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install FFmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+      - name: Build looped game audio from CC0 recordings
+        run: python3 tools/prepare-elantra.py elantra-recordings.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: elantra-recordings
+          path: elantra-recordings.js
