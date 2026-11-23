@@ -43,7 +43,7 @@ start.onclick=()=>{
   start.disabled=true;statusBox.textContent='언리얼 화면을 연결하고 있습니다…';
   const media=new MediaSource(),sock=ws=new WebSocket(endpoint.replace(/^http/,'ws')+'/drive');
   let buffer,mime,queue=[];sock.binaryType='arraybuffer';
-  timeout=setTimeout(()=>finish('송출 PC에서 화면이 도착하지 않았습니다. 잠시 후 다시 시도해 주세요.'),22000);
+  timeout=setTimeout(()=>finish('송출 PC에서 화면이 도착하지 않았습니다. 잠시 후 다시 시도해 주세요.'),185000);
   function pump(){if(ws!==sock||media.readyState!=='open')return;
     try{if(!buffer&&mime){buffer=media.addSourceBuffer(mime);buffer.onupdateend=pump;}
       if(!buffer||buffer.updating)return;
