@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>서울드라이브 · 언리얼 주행</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#10171b;color:#f7f8f5;font:16px system-ui,sans-serif}main{height:100dvh;display:grid;place-items:center}video{width:100%;height:100%;object-fit:contain}section{position:absolute;background:#17232a;padding:clamp(22px,5vw,48px);border-radius:10px;max-width:min(420px,94vw)}h1{margin:0 0 .5em}p{line-height:1.6;color:#d4dfe2}button,a{font:inherit}button{padding:10px 18px;color:#152027;background:#f6bc72;border:0;border-radius:5px;cursor:pointer}a{display:inline-block;margin:10px 10px 0 0;color:#cfdee3}#leave{position:absolute;top:14px;right:14px;background:#152027bf;color:white}small{color:#b4c8d1}[hidden]{display:none!important}
+</style>
+<main><video autoplay playsinline tabindex="0"></video><section><small>서울드라이브 · Unreal Engine</small><h1>반포대교 주행</h1>
+<p id="status" role="status">언리얼 송출 주소를 확인하고 있습니다.</p><button id="start" hidden>운전 시작</button><br>
+<a id="base" href="https://shadoway1984.github.io/seoul-drive/">서울 전역 웹판</a>
+<a id="local" href="http://127.0.0.1:18342/" hidden>송출 PC에서 열기</a></section><button id="leave" hidden>주행 종료</button></main>
+<script>
+const video=document.querySelector('video'),panel=document.querySelector('section'),start=document.querySelector('#start'),leave=document.querySelector('#leave'),statusBox=document.querySelector('#status');
+const isPages=location.hostname==='shadoway1984.github.io';
+const allowed=new Set([87,65,83,68,38,37,40,39,32,67,82,9]);
+let endpoint,ws,objectUrl,timeout,keys=new Set();
+function configured(value){
+  if(!value)return;
+  const u=new URL(value);
+  if(u.protocol==='https:'&&!u.username&&!u.password&&!u.port&&/^[a-z0-9-]+\.(ngrok-free\.(app|dev)|ngrok\.app)$/.test(u.hostname))return u.origin;
+}
+(async()=>{
+  if(isPages){
+    try{endpoint=configured(new URL(location.href).searchParams.get('host'));
+      if(!endpoint){const r=await fetch('./unreal-host.json',{cache:'no-store'});if(r.ok)endpoint=configured((await r.json()).origin);}
+    }catch{}
+  }else endpoint=location.origin;
+  if(!endpoint){statusBox.textContent='공개 송출이 아직 연결되지 않았습니다.';document.querySelector('#local').hidden=false;return;}
+  statusBox.textContent='W 가속 · S 제동 · A / D 조향 · Space 핸드브레이크';start.hidden=false;
+})();
+function release(){for(const key of keys)if(ws?.readyState===1)ws.send(Uint8Array.of(61,key));keys.clear();}
+onblur=release;document.addEventListener('visibilitychange',()=>{if(document.hidden)release();});
+onkeydown=e=>{if(!panel.hidden||!allowed.has(e.keyCode)||ws?.readyState!==1)return;e.preventDefault();if(!keys.has(e.keyCode)){keys.add(e.keyCode);ws.send(Uint8Array.of(60,e.keyCode));}};
+onkeyup=e=>{if(keys.delete(e.keyCode)&&ws?.readyState===1){e.preventDefault();ws.send(Uint8Array.of(61,e.keyCode));}};
+function finish(reason){
+  const old=ws;ws=null;release();if(old){old.onclose=null;old.close();}
+  clearTimeout(timeout);video.onplaying=null;video.pause();video.removeAttribute('src');video.load();
+  if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=null;
+  panel.hidden=false;leave.hidden=true;start.disabled=false;statusBox.textContent=reason;
+}
+leave.onclick=()=>finish('주행을 종료했습니다.');
+start.onclick=()=>{
+  if(!window.MediaSource||!MediaSource.isTypeSupported('video/webm;codecs=vp8,opus')){statusBox.textContent='이 브라우저는 송출 영상 형식을 지원하지 않습니다. Chrome 또는 Edge에서 열어주세요.';return;}
+  start.disabled=true;statusBox.textContent='언리얼 화면을 연결하고 있습니다…';
+  const media=new MediaSource(),sock=ws=new WebSocket(endpoint.replace(/^http/,'ws')+'/drive');
+  let buffer,mime,queue=[];sock.binaryType='arraybuffer';
+  timeout=setTimeout(()=>finish('송출 PC에서 화면이 도착하지 않았습니다. 잠시 후 다시 시도해 주세요.'),22000);
+  function pump(){if(ws!==sock||media.readyState!=='open')return;
+    try{if(!buffer&&mime){buffer=media.addSourceBuffer(mime);buffer.onupdateend=pump;}
+      if(!buffer||buffer.updating)return;
+      if(video.currentTime>12&&buffer.buffered.length&&buffer.buffered.start(0)<video.currentTime-10){buffer.remove(0,video.currentTime-6);return;}
+      if(queue.length)buffer.appendBuffer(queue.shift());
+      if(buffer.buffered.length){
+        const end=buffer.buffered.end(buffer.buffered.length-1);
+        if(end-video.currentTime>0.85)video.currentTime=Math.max(0,end-.24);
+      }
+    }catch{finish('영상 재생이 중단됐습니다. 다시 연결해 주세요.');}
+  }
+  media.addEventListener('sourceopen',pump);objectUrl=URL.createObjectURL(media);video.src=objectUrl;
+  video.play().catch(()=>{if(ws===sock){video.muted=true;video.play().catch(()=>{});video.controls=true;}});
+  sock.onmessage=e=>{if(ws!==sock)return;if(typeof e.data==='string')mime=JSON.parse(e.data).mime;
+    else{queue.push(e.data);if(queue.length>80){finish('네트워크 지연으로 연결이 종료됐습니다. 다시 연결해 주세요.');return;}}pump();};
+  sock.onclose=e=>{if(ws===sock)finish(e.reason==='busy'?'다른 운전자가 주행 중입니다. 잠시 후 다시 접속해 주세요.':'언리얼 송출 연결이 종료됐습니다.');};
+  video.onplaying=()=>{clearTimeout(timeout);panel.hidden=true;leave.hidden=false;video.focus();};
+};
+</script></html>
