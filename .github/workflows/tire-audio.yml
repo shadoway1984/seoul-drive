@@ -1,0 +1,34 @@
+name: Prepare recorded tire squeal
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/tire-audio.yml']
+permissions:
+  contents: write
+jobs:
+  recording:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download CC0 tire recording by RutgerMuller
+        run: curl --fail --location --retry 3 --connect-timeout 12 --max-time 35 https://cdn.freesound.org/previews/104/104026_179538-hq.mp3 -o "$RUNNER_TEMP/tire.mp3"
+      - name: Encode mono PCM for the web and offline game
+        run: |
+          command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y ffmpeg)
+          ffmpeg -v error -i "$RUNNER_TEMP/tire.mp3" -ac 1 -ar 24000 -f s16le "$RUNNER_TEMP/tire.pcm"
+          python3 - <<'PY'
+          import base64, json, os, pathlib
+          data = (pathlib.Path(os.environ["RUNNER_TEMP"])/"tire.pcm").read_bytes()
+          assert 80000 < len(data) < 105000
+          sample = dict(author="RutgerMuller", id=104026, rate=24000, pcm=base64.b64encode(data).decode("ascii"))
+          pathlib.Path("tire-recording.js").write_text("/* Tires Squeaking.aif, Freesound 104026, CC0. */\nwindow.SEOUL_TIRE_RECORDING="+json.dumps(sample,separators=(",",":"))+";\n")
+          PY
+      - name: Save the public sound asset
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git add -- tire-recording.js
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Package recorded tire squeal"
+            git push origin HEAD:main
+          fi
