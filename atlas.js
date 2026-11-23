@@ -30,6 +30,18 @@ window.setupSeoulAtlas=function(road,car,onOpen,onClose,getNetwork,respawn){
    ctx.setTransform(dpr,0,0,dpr,0,0);
    if(pending){ctx.strokeStyle='#8ef6f0';ctx.lineWidth=3;ctx.beginPath();ctx.arc(w/2+(pending.x-px)*k,h/2+(pending.z-pz)*k,8,0,2*Math.PI);ctx.stroke();}
    const occupied=[];ctx.font='600 12px "Malgun Gothic", sans-serif';ctx.lineWidth=3;ctx.textAlign='center';
+   if(metres<=1800&&window.SeoulTransit?.stopsNear){
+     const stops=SeoulTransit.stopsNear(px-w/(2*k),pz-h/(2*k),px+w/(2*k),pz+h/(2*k));
+     for(const stop of stops){
+       const x=w/2+(stop.x-px)*k,y=h/2+(stop.z-pz)*k;
+       ctx.fillStyle='#83c5fa';ctx.fillRect(x-3,y-3,6,6);
+       if(metres>800||!stop.name)continue;
+       const labelWidth=ctx.measureText(stop.name).width,mid=x+6+labelWidth/2;
+       if(mid+labelWidth/2>w||occupied.some(a=>Math.abs(a[0]-mid)<labelWidth/2+44&&Math.abs(a[1]-y)<17))continue;
+       ctx.strokeStyle='#18292d';ctx.strokeText(stop.name,mid,y);
+       ctx.fillStyle='#cde8ff';ctx.fillText(stop.name,mid,y);occupied.push([mid,y]);
+     }
+   }
    for(const [name,line] of Object.entries(HAN_BRIDGES)){const q=road.project(...line[Math.floor(line.length/2)]),x=w/2+(q.x-px)*k,y=h/2+(q.z-pz)*k;
      if(x<27||x>w-27||y<20||y>h-8||occupied.some(a=>Math.abs(a[0]-x)<70&&Math.abs(a[1]-y)<20))continue;
      occupied.push([x,y]);ctx.strokeStyle='#22373f';ctx.strokeText(name,x,y);ctx.fillStyle='#e9ddc5';ctx.fillText(name,x,y);

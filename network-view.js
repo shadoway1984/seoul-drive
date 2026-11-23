@@ -4,7 +4,7 @@ window.drawSeoulStreets=function(T,scene,world){
  const live=new Map(),tile=world.cellSize;
  const mat=new T.MeshStandardMaterial({vertexColors:true,roughness:.92,metalness:.025,side:T.DoubleSide});
  const furniture=createSeoulFurniture(T,world);
- const colors={asphalt:0x625f59,patch:0x605d58,white:0xe4e5dd,yellow:0xd9a83f,curb:0xa29b90,steel:0x919b9e,deck:0x626d72,pier:0x7b8284};
+ const colors={busBlue:0x197bb7,busGlass:0x253e50,busPavement:0x766665,asphalt:0x625f59,patch:0x605d58,white:0xe4e5dd,yellow:0xd9a83f,curb:0xa29b90,steel:0x919b9e,deck:0x626d72,pier:0x7b8284};
  for(const k in colors)colors[k]=new T.Color(colors[k]);
  let previous='';
  mat.onBeforeCompile=shader=>{
@@ -22,7 +22,7 @@ window.drawSeoulStreets=function(T,scene,world){
  const pos=[],col=[],pavement=[],group=new T.Group();
  const [tileX,tileZ]=k.split(',').map(Number);
  const neighbors=world.nearby((tileX+.5)*tile,(tileZ+.5)*tile,tile);
- function tri(a,b,c,color){pos.push(...a,...b,...c);const mask=color===colors.asphalt||color===colors.patch?1:0;pavement.push(mask,mask,mask);for(let i=0;i<3;i++)col.push(color.r,color.g,color.b);}
+ function tri(a,b,c,color){pos.push(...a,...b,...c);const mask=color===colors.asphalt||color===colors.patch||color===colors.busPavement?1:0;pavement.push(mask,mask,mask);for(let i=0;i<3;i++)col.push(color.r,color.g,color.b);}
  function quad(a,b,c,d,color){tri(a,b,c,color);tri(a,c,d,color);}
  for(const e of edges){
    const shape=world.roadShape(e),p=shape.point,breaks=shape.cuts.slice(1,-1),a=world.at(e,0);
@@ -58,6 +58,7 @@ window.drawSeoulStreets=function(T,scene,world){
      const l=side*(width-.22);
      exposed(0,e.len,side,.18,(s,t)=>band(s,t,l-.075,l+.075,.021,(side===1&&(e.flags&16)&&freeway)?colors.yellow:colors.white));
    }
+   SeoulTransit.addLane(e,band,colors.busBlue);
    // Profile starts at the exact face used by the contact solver. Capped
    // concrete parapets and backed steel beams follow the shared road outline.
    const borders=world.roadBorders(e);
@@ -128,12 +129,13 @@ window.drawSeoulStreets=function(T,scene,world){
      }
    }
  }
+ SeoulTransit.addTile(k,world,quad,colors);
  if(pos.length){const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));g.setAttribute('color',new T.Float32BufferAttribute(col,3));g.setAttribute('pavement',new T.Uint8BufferAttribute(pavement,1));g.computeVertexNormals();g.computeBoundingSphere();const m=new T.Mesh(g,mat);m.receiveShadow=true;group.add(m);}
  furniture.add(group,k);
  group.name='서울 도로 '+k;scene.add(group);return group;
  }
  function update(s){const p=world.point(s);const i=Math.floor(p.x/tile),j=Math.floor(p.z/tile),current=i+','+j;if(current===previous)return;previous=current;
-   const wanted=new Set();for(let x=i-3;x<=i+3;x++)for(let z=j-3;z<=j+3;z++){const k=x+','+z;if(world.grid.has(k)||furniture.has(k))wanted.add(k);}
+   const wanted=new Set();for(let x=i-3;x<=i+3;x++)for(let z=j-3;z<=j+3;z++){const k=x+','+z;if(world.grid.has(k)||furniture.has(k)||SeoulTransit.has(k))wanted.add(k);}
    for(const [k,g] of live)if(!wanted.has(k)){g.removeFromParent();g.traverse(o=>{if(o.isMesh&&!o.isInstancedMesh)o.geometry.dispose();if(o.isInstancedMesh)o.dispose();});live.delete(k);}
    for(const k of wanted)if(!live.has(k))live.set(k,make(world.grid.get(k)||[],k));
  }
