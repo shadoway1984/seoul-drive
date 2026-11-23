@@ -3,6 +3,7 @@ import array
 import base64
 import json
 import math
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import subprocess
 import sys
@@ -48,24 +49,34 @@ def excerpt(samples, limit):
     return round(start/RATE,3), base64.b64encode(pcm.tobytes()).decode("ascii")
 
 
-def main():
-    clips = {}
-    with tempfile.TemporaryDirectory() as tmp:
-        for key, author, sid, uid, limit in SOURCES:
-            dest = Path(tmp)/f"{sid}.mp3"
-            url = f"https://cdn.freesound.org/previews/{sid//1000}/{sid}_{uid}-hq.mp3"
-            request = urllib.request.Request(url, headers={"User-Agent":"SeoulDrive audio asset build"})
-            with urllib.request.urlopen(request, timeout=40) as response:
+def prepare(source, tmp):
+    key, author, sid, uid, limit = source
+    dest = Path(tmp)/f"{sid}.mp3"
+    for attempt, quality in enumerate(("hq","hq","lq")):
+        url = f"https://cdn.freesound.org/previews/{sid//1000}/{sid}_{uid}-{quality}.mp3"
+        request = urllib.request.Request(url, headers={"User-Agent":"SeoulDrive audio asset build"})
+        try:
+            with urllib.request.urlopen(request, timeout=25+attempt*5) as response:
                 dest.write_bytes(response.read())
-            raw = subprocess.check_output(["ffmpeg", "-v", "error", "-i", str(dest), "-ac", "1",
-                                           "-ar", str(RATE), "-f", "s16le", "-"])
-            samples = array.array("h")
-            samples.frombytes(raw)
-            if sys.byteorder != "little":
-                samples.byteswap()
-            start, pcm = excerpt(samples, limit)
-            clips[key] = dict(author=author, id=sid, start=start, rate=RATE, pcm=pcm)
-            print(f"{key}: {sid}, excerpt starts at {start:.3f} s")
+            break
+        except OSError as error:
+            print(f"{key}: download attempt {attempt+1}: {error}", flush=True)
+            if attempt==2:
+                raise
+    raw = subprocess.check_output(["ffmpeg", "-v", "error", "-i", str(dest), "-ac", "1",
+                                   "-ar", str(RATE), "-f", "s16le", "-"])
+    samples = array.array("h")
+    samples.frombytes(raw)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    start, pcm = excerpt(samples, limit)
+    print(f"{key}: {sid}, excerpt starts at {start:.3f} s",flush=True)
+    return key, dict(author=author, id=sid, start=start, rate=RATE, pcm=pcm)
+
+
+def main():
+    with tempfile.TemporaryDirectory() as tmp, ThreadPoolExecutor(max_workers=4) as pool:
+        clips = dict(pool.map(lambda source: prepare(source,tmp), SOURCES))
     Path(sys.argv[1]).write_text("/* Downloaded Freesound recordings, CC0. */\nwindow.SEOUL_IMPACTS={\n"
         + ",\n".join(json.dumps(k)+":"+json.dumps(v,separators=(",",":")) for k,v in clips.items())
         + "\n};\n", encoding="utf8")
