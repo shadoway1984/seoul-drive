@@ -69,33 +69,67 @@ window.createSeoulSound=function(ctx){
  function filter(type,f,q){const n=ctx.createBiquadFilter();n.type=type;n.frequency.value=f;n.Q.value=q;return n;}
  function gain(){const g=ctx.createGain();g.gain.value=0;return g;}
  const set=(param,v,t,rate)=>param.setTargetAtTime(v,t,rate);
- // The player's I4 fires twice per revolution. Its two exhaust resonances
- // stay in the same frequency range as engine speed and firing rate change.
+ // Render the exhaust at three operating points. Each bank keeps the pulse
+ // width and pipe reflections in milliseconds as the firing interval changes.
+ const exhaustBus=ctx.createGain(),exhaustCabin=filter('lowpass',6300,.65);
+ exhaustBus.connect(exhaustCabin);exhaustCabin.connect(master);
  function avante(){
-   const src=ctx.createBufferSource(),reference=1500,loop=ctx.createBuffer(1,size,ctx.sampleRate),a=loop.getChannelData(0);
-   const firings=100,amplitudes=[1,.94,.98,.91];
-   for(let n=0;n<firings;n++){
-     const k=Math.floor((n+.045+.013*noise())*size/firings),amp=amplitudes[n%4]*(1+.025*noise());
-     for(let j=0;j<ctx.sampleRate*.024;j++){
-       const t=j/ctx.sampleRate;
-       const forward=(1-Math.exp(-1750*t))*Math.exp(-235*t);
-       const rebound=t>.004?(1-Math.exp(-690*(t-.004)))*Math.exp(-154*(t-.004)):0;
-       a[(k+j)%size]+=amp*(forward-1.06*rebound+.13*noise()*Math.exp(-410*t));
+   const banks=[{rpm:960,cycles:16},{rpm:3000,cycles:50},{rpm:5520,cycles:92}];
+   const body=filter('highpass',32,.65),valve=filter('lowpass',400,.6);
+   const level=gain();body.connect(valve);valve.connect(level);level.connect(exhaustBus);
+   const inlet=filter('bandpass',680,.75),inletLevel=gain();
+   inlet.connect(inletLevel);inletLevel.connect(master);
+   const induction=ctx.createBufferSource(),boostBand=filter('bandpass',1800,.65),boost=gain();
+   induction.buffer=air;induction.loop=true;induction.connect(boostBand);boostBand.connect(boost);boost.connect(master);induction.start();
+   const amplitude=[1,.91,.96,.88];
+   for(const bank of banks){
+     const frames=Math.round(ctx.sampleRate*bank.cycles*120/bank.rpm);
+     const buffer=ctx.createBuffer(1,frames,ctx.sampleRate),wave=buffer.getChannelData(0);
+     const high=bank.rpm/6000,period=ctx.sampleRate*30/bank.rpm;
+     const response=Math.ceil(ctx.sampleRate*.028),taps=[];
+     // Two opposite-polarity reflections and their weaker return at the tips.
+     for(const [ms,strength] of [[0,1],[2.6,-.49],[5.9,.40],[9.1,-.23],[14.3,.16]]){
+       taps.push([Math.round(ctx.sampleRate*ms/1000),strength]);
      }
+     let drift=0;
+     for(let i=0;i<bank.cycles*4;i++){
+       drift=.82*drift+.18*noise();
+       const onset=Math.round((i+.12+drift*(.095-.055*high))*period);
+       const force=amplitude[i%4]*(1+.095*noise()+.075*drift);
+       const decay=(285+150*high)*(1+.07*noise());
+       let rough=0;
+       for(let j=0;j<response;j++){
+         const t=j/ctx.sampleRate;
+         rough+=.33*(noise()-rough);
+         const pressure=(1-Math.exp(-t*3900))*Math.exp(-t*decay);
+         const vacuum=(1-Math.exp(-t*610))*Math.exp(-t*131)*.68;
+         const burst=(pressure-vacuum+rough*(.72+.58*high)*pressure)*force;
+         for(const [delay,strength] of taps)wave[(onset+j+delay)%frames]+=burst*strength;
+       }
+     }
+     let sum=0;for(const v of wave)sum+=v*v;
+     const norm=.22/Math.sqrt(sum/frames);for(let i=0;i<frames;i++)wave[i]*=norm;
+     bank.src=ctx.createBufferSource();bank.weight=gain();
+     bank.src.buffer=buffer;bank.src.loop=true;bank.src.playbackRate.value=890/bank.rpm;
+     bank.src.connect(bank.weight);bank.weight.connect(body);bank.weight.connect(inlet);bank.src.start();
    }
-   const valve=filter('lowpass',420,.62),dry=gain(),note=filter('peaking',178,1.12),rasp=filter('peaking',620,.81);
-   src.buffer=loop;src.loop=true;src.connect(note);note.connect(rasp);rasp.connect(valve);valve.connect(dry);dry.connect(master);src.start();
-   const compressorNoise=ctx.createBufferSource(),inlet=filter('bandpass',1500,.85),boost=gain();
-   compressorNoise.buffer=air;compressorNoise.loop=true;compressorNoise.connect(inlet);inlet.connect(boost);boost.connect(master);compressorNoise.start();
-   return (enabled,rpm,gas,cut)=>{
-     const t=ctx.currentTime,r=Math.min(6800,Math.max(700,rpm)),speed=r/6800;
-     const load=enabled&&!cut?gas:0,open=Math.min(1,.08+.78*load+Math.max(0,r-3000)/7300);
-     set(src.playbackRate,r/reference,t,.035);
-     set(note.gain,4.6+open*2,t,.07);set(rasp.gain,-2+open*7,t,.07);
-     set(valve.frequency,285+speed*610+open*1520,t,.055);
-     set(dry.gain,enabled?(.115+.16*speed+.21*load)*(cut?.42:1):0,t,.035);
-     set(inlet.frequency,850+speed*1150,t,.11);
-     set(boost.gain,enabled?.047*load*load*Math.max(0,(r-1500)/5000):0,t,.09);
+   return (enabled,rpm,gas,cut,inside)=>{
+     const t=ctx.currentTime,r=Math.min(6800,Math.max(700,rpm)),rev=r/6800;
+     const load=cut?0:gas;
+     // Equal-power fades avoid hard transitions when the gearbox drops RPM.
+     const lower=r<banks[1].rpm?0:1;
+     const blend=Math.max(0,Math.min(1,Math.log(r/banks[lower].rpm)/Math.log(banks[lower+1].rpm/banks[lower].rpm)));
+     banks.forEach((b,i)=>{
+       const weight=i===lower?Math.cos(blend*Math.PI/2):i===lower+1?Math.sin(blend*Math.PI/2):0;
+       set(b.src.playbackRate,r/b.rpm,t,cut?.018:.035);set(b.weight.gain,weight,t,.035);
+     });
+     set(exhaustCabin.frequency,inside?720:6900,t,.085);
+     set(valve.frequency,310+310*rev+load*(470+2600*rev),t,load>.3?.055:.095);
+     set(level.gain,enabled?(.16+.22*rev+.68*load)*(inside?.65:1)*(cut?.31:1):0,t,cut?.014:.045);
+     set(inlet.frequency,350+460*rev+load*225,t,.075);
+     set(inletLevel.gain,enabled?load*(.12+.31*rev)*(inside?1.32:.74):0,t,.065);
+     set(boostBand.frequency,1080+rev*1270,t,.12);
+     set(boost.gain,enabled?load*load*Math.max(0,(r-1600)/4800)*(inside?.038:.072):0,t,.12);
    };
  }
  const playerMotor=avante();
@@ -112,7 +146,7 @@ window.createSeoulSound=function(ctx){
  function pop(strength){
    const s=ctx.createBufferSource(),level=ctx.createGain();s.buffer=popBuffers[popIndex++%popBuffers.length];
    s.playbackRate.value=.91+.12*strength+.035*noise();level.gain.value=.72*strength;
-   s.connect(level);level.connect(master);tails.add(s);
+   s.connect(level);level.connect(exhaustBus);tails.add(s);
    s.onended=()=>{s.disconnect();level.disconnect();tails.delete(s);};s.start();
  }
  function voice(i){
@@ -150,11 +184,11 @@ window.createSeoulSound=function(ctx){
    p.linearRampToValueAtTime(0,t+.025);running=false;
    for(const s of tails)s.stop();tails.clear();
  }
- function update(car,cars,kind,gas,enabled,pulse=0){
+ function update(car,cars,kind,gas,enabled,pulse=0,inside=false){
    const t=ctx.currentTime;
    if(!enabled){quiet();return;}
    if(!running){master.gain.cancelScheduledValues(t);set(master.gain,.70,t,.045);running=true;}
-   playerMotor(kind===0,car.rpm,gas,car.shiftTime>0);
+   playerMotor(kind===0,car.rpm,gas,car.shiftTime>0,inside);
    own(kind===0?4:kind,car.rpm,Math.abs(car.u),car.shiftTime>0?gas*.10:gas,.35,0,1);
    if(kind===0&&pulse>0)pop(pulse);
    const s=Math.sin(car.yaw),c=Math.cos(car.yaw);

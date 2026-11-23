@@ -62,7 +62,7 @@ function syncAudio(gas,dt){
  const kind=Number($("motorSound").value),driving=mode==="driving";
  const shot=exhaust.step(car,gas,dt,driving&&kind===0);
  vehicle?.setExhaustPulse?.(shot.glow);
- mixer?.update(car,traffic?.cars||[],kind,gas,audioOn&&driving,shot.pulse);
+ mixer?.update(car,traffic?.cars||[],kind,gas,audioOn&&driving,shot.pulse,cameraMode===1);
 }
 $("gear").onclick=()=>{if(mode==="driving")direction();};
 function direction(){note(car.changeDirection()?(car.forward?"전진 기어":"후진 기어"):"정차 후 전환할 수 있습니다");}
