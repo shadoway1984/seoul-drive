@@ -28,7 +28,7 @@ window.makeNetworkTraffic=function(world,sceneCars,detailed,lodDamage){
        const q=world.projectEdge(c.edge,c.x,c.z);c.s=q.s;c.y=world.at(c.edge,c.s).y+.02;
        c.u*=Math.exp(-1.0*dt);c.v*=Math.exp(-2*dt);c.omega*=Math.exp(-2*dt);
      }else{advance(c,c.u*dt);pose(c);}
-     if(Math.abs(c.y-world.height(car.s))<2&&HanCollision.pair(car,c)){c.dynamic=true;HanCollision.rail(car,world);}
+     if(!car.flight&&Math.abs(c.y-world.height(car.s))<2&&HanCollision.pair(car,c)){c.dynamic=true;HanCollision.rail(car,world);}
    }
  }
  function render(car){const near=[];for(const c of sceneCars){c.group.visible=!!c.edge;if(!c.edge)continue;c.group.position.set(c.x,c.y,c.z);c.group.rotation.y=c.yaw;

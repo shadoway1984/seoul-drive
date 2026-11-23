@@ -1,5 +1,4 @@
-/* Original procedural audio. Reference: Hyundai N, "Make Everyday Life
-   Exciting: Elantra N", on the exterior variable exhaust and upshift sound. */
+/* Player engine uses CC0 Elantra recordings. Traffic, exhaust pops and impacts are synthesized. */
 window.createAvanteExhaust=function(){
  let loadTime,armed,lastGear,lastRpm,clock,lockout,next,pops,power,glow;
  function reset(){
@@ -69,46 +68,25 @@ window.createSeoulSound=function(ctx){
  function filter(type,f,q){const n=ctx.createBiquadFilter();n.type=type;n.frequency.value=f;n.Q.value=q;return n;}
  function gain(){const g=ctx.createGain();g.gain.value=0;return g;}
  const set=(param,v,t,rate)=>param.setTargetAtTime(v,t,rate);
- // Render the exhaust at three operating points. Each bank keeps the pulse
- // width and pipe reflections in milliseconds as the firing interval changes.
  const exhaustBus=ctx.createGain(),exhaustCabin=filter('lowpass',6300,.65);
  exhaustBus.connect(exhaustCabin);exhaustCabin.connect(master);
  function avante(){
-   const banks=[{rpm:960,cycles:16},{rpm:3000,cycles:50},{rpm:5520,cycles:92}];
+   // Recorded exhaust harmonics are spaced about 36.7 Hz and 82 Hz.
+   // Two firings per revolution; no tachometer track is available.
+   const banks=window.ELANTRA_RECORDINGS.map((clip,i)=>({clip,rpm:i===0?1100:2460}));
    const body=filter('highpass',32,.65),valve=filter('lowpass',400,.6);
    const level=gain();body.connect(valve);valve.connect(level);level.connect(exhaustBus);
    const inlet=filter('bandpass',680,.75),inletLevel=gain();
    inlet.connect(inletLevel);inletLevel.connect(master);
    const induction=ctx.createBufferSource(),boostBand=filter('bandpass',1800,.65),boost=gain();
    induction.buffer=air;induction.loop=true;induction.connect(boostBand);boostBand.connect(boost);boost.connect(master);induction.start();
-   const amplitude=[1,.91,.96,.88];
    for(const bank of banks){
-     const frames=Math.round(ctx.sampleRate*bank.cycles*120/bank.rpm);
-     const buffer=ctx.createBuffer(1,frames,ctx.sampleRate),wave=buffer.getChannelData(0);
-     const high=bank.rpm/6000,period=ctx.sampleRate*30/bank.rpm;
-     const response=Math.ceil(ctx.sampleRate*.028),taps=[];
-     // Two opposite-polarity reflections and their weaker return at the tips.
-     for(const [ms,strength] of [[0,1],[2.6,-.49],[5.9,.40],[9.1,-.23],[14.3,.16]]){
-       taps.push([Math.round(ctx.sampleRate*ms/1000),strength]);
+     const bytes=atob(bank.clip.pcm),buffer=ctx.createBuffer(1,bytes.length/2,bank.clip.rate);
+     const wave=buffer.getChannelData(0);
+     for(let i=0;i<wave.length;i++){
+       const v=bytes.charCodeAt(2*i)|(bytes.charCodeAt(2*i+1)<<8);
+       wave[i]=(v>=32768?v-65536:v)/32768;
      }
-     let drift=0;
-     for(let i=0;i<bank.cycles*4;i++){
-       drift=.82*drift+.18*noise();
-       const onset=Math.round((i+.12+drift*(.095-.055*high))*period);
-       const force=amplitude[i%4]*(1+.095*noise()+.075*drift);
-       const decay=(285+150*high)*(1+.07*noise());
-       let rough=0;
-       for(let j=0;j<response;j++){
-         const t=j/ctx.sampleRate;
-         rough+=.33*(noise()-rough);
-         const pressure=(1-Math.exp(-t*3900))*Math.exp(-t*decay);
-         const vacuum=(1-Math.exp(-t*610))*Math.exp(-t*131)*.68;
-         const burst=(pressure-vacuum+rough*(.72+.58*high)*pressure)*force;
-         for(const [delay,strength] of taps)wave[(onset+j+delay)%frames]+=burst*strength;
-       }
-     }
-     let sum=0;for(const v of wave)sum+=v*v;
-     const norm=.22/Math.sqrt(sum/frames);for(let i=0;i<frames;i++)wave[i]*=norm;
      bank.src=ctx.createBufferSource();bank.weight=gain();
      bank.src.buffer=buffer;bank.src.loop=true;bank.src.playbackRate.value=890/bank.rpm;
      bank.src.connect(bank.weight);bank.weight.connect(body);bank.weight.connect(inlet);bank.src.start();
@@ -117,14 +95,14 @@ window.createSeoulSound=function(ctx){
      const t=ctx.currentTime,r=Math.min(6800,Math.max(700,rpm)),rev=r/6800;
      const load=cut?0:gas;
      // Equal-power fades avoid hard transitions when the gearbox drops RPM.
-     const lower=r<banks[1].rpm?0:1;
+     const lower=0;
      const blend=Math.max(0,Math.min(1,Math.log(r/banks[lower].rpm)/Math.log(banks[lower+1].rpm/banks[lower].rpm)));
      banks.forEach((b,i)=>{
        const weight=i===lower?Math.cos(blend*Math.PI/2):i===lower+1?Math.sin(blend*Math.PI/2):0;
-       set(b.src.playbackRate,r/b.rpm,t,cut?.018:.035);set(b.weight.gain,weight,t,.035);
+       set(b.src.playbackRate,Math.max(.33,Math.min(2.8,r/b.rpm)),t,cut?.018:.035);set(b.weight.gain,weight,t,.035);
      });
      set(exhaustCabin.frequency,inside?720:6900,t,.085);
-     set(valve.frequency,310+310*rev+load*(470+2600*rev),t,load>.3?.055:.095);
+     set(valve.frequency,1450+1600*rev+load*(750+2550*rev),t,load>.3?.055:.095);
      set(level.gain,enabled?(.16+.22*rev+.68*load)*(inside?.65:1)*(cut?.31:1):0,t,cut?.014:.045);
      set(inlet.frequency,350+460*rev+load*225,t,.075);
      set(inletLevel.gain,enabled?load*(.12+.31*rev)*(inside?1.32:.74):0,t,.065);
@@ -143,6 +121,29 @@ window.createSeoulSound=function(ctx){
    }return b;
  });
  const tails=new Set();let popIndex=0;
+ const impactClips=new Map(),lastImpact=new Map();
+ function impact(material,dv){
+   const now=ctx.currentTime,last=lastImpact.get(material);
+   if(!running||dv<.22||(last&&now-last.time<.13&&dv<last.dv*1.6))return;
+   lastImpact.set(material,{time:now,dv});
+   const timbres={vehicle:[85,420,.22],steel:[174,910,.34],parapet:[75,310,.14],
+     curb:[108,205,.075],wood:[126,535,.13],concrete:[69,370,.16],water:[42,680,.43]};
+   const [bass,ring,decay]=timbres[material]||timbres.concrete;
+   if(!impactClips.has(material)){
+     const buffer=ctx.createBuffer(1,Math.ceil(ctx.sampleRate*decay*2.5),ctx.sampleRate),data=buffer.getChannelData(0);
+     let low=0;
+     for(let i=0;i<data.length;i++){
+       const t=i/ctx.sampleRate,grain=noise();low+=.13*(grain-low);
+       const hit=Math.exp(-t*7/decay),tail=Math.exp(-t*3/decay);
+       const crunch=material==='water'?low*2:grain*.34+low*.5;
+       data[i]=(1-Math.exp(-t*2400))*(hit*(.59*Math.sin(2*Math.PI*bass*t)+crunch)+tail*(material==='water'?low:.26*Math.sin(2*Math.PI*ring*t)));
+     }impactClips.set(material,buffer);
+   }
+   const src=ctx.createBufferSource(),gain=ctx.createGain();src.buffer=impactClips.get(material);
+   src.playbackRate.value=1.08-Math.min(.21,dv*.009);gain.gain.value=Math.min(1.65,.12+.35*Math.sqrt(dv));
+   src.connect(gain);gain.connect(master);tails.add(src);
+   src.onended=()=>{tails.delete(src);src.disconnect();gain.disconnect();};src.start();
+ }
  function pop(strength){
    const s=ctx.createBufferSource(),level=ctx.createGain();s.buffer=popBuffers[popIndex++%popBuffers.length];
    s.playbackRate.value=.91+.12*strength+.035*noise();level.gain.value=.72*strength;
@@ -221,5 +222,5 @@ window.createSeoulSound=function(ctx){
      for(const osc of hornVoices){osc.stop(t+.038);osc.onended=()=>osc.disconnect();}hornVoices=[];
    }
  }
- return {update,horn,quiet};
+ return {update,horn,quiet,impact};
 };

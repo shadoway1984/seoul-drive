@@ -13,7 +13,7 @@ window.SeoulTransit=(()=>{
       for(const offset of [right+.13,left-.13])band(0,e.len,offset-.07,offset+.07,.038,blue);
     }
   }
-  function addTile(k,world,quad,c){
+  function addTile(k,world,quad,c,owner){
     const [ix,iz]=k.split(',').map(Number);
     const nearbyTracks=[];
     for(let i=ix-1;i<=ix+1;i++)for(let j=iz-1;j<=iz+1;j++)nearbyTracks.push(...(tracks[i+','+j]||[]));
@@ -54,6 +54,8 @@ window.SeoulTransit=(()=>{
         const p=(a,b,h)=>[sx+a*e.tz+b*e.tx,base+h,sz-a*e.tx+b*e.tz];
         const a=p(x0,z0,y0),b=p(x1,z0,y0),d=p(x0,z1,y0),f=p(x1,z1,y0);
         const A=p(x0,z0,y1),B=p(x1,z0,y1),D=p(x0,z1,y1),F=p(x1,z1,y1);
+        const u=p((x0+x1)/2,z0,y0),v=p((x0+x1)/2,z1,y0);
+        if(owner&&y0<1.5)world.scenery?.wall(owner,u[0],u[2],v[0],v[2],Math.abs(x1-x0),base+y0,base+y1,'steel');
         quad(a,b,B,A,material);quad(b,f,F,B,material);quad(f,d,D,F,material);quad(d,a,A,D,material);quad(A,B,F,D,material);
       }
       box(-.055,.055,-.055,.055,0,2.65,c.steel);

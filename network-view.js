@@ -6,7 +6,7 @@ window.drawSeoulStreets=function(T,scene,world){
  const furniture=createSeoulFurniture(T,world);
  const colors={busBlue:0x197bb7,busGlass:0x253e50,busPavement:0x766665,asphalt:0x625f59,patch:0x605d58,white:0xe4e5dd,yellow:0xd9a83f,curb:0xa29b90,steel:0x919b9e,deck:0x626d72,pier:0x7b8284};
  for(const k in colors)colors[k]=new T.Color(colors[k]);
- let previous='';
+ let previous='',revision=0;
  mat.onBeforeCompile=shader=>{
    shader.uniforms.roadWet=SeoulWeather.uniforms.wet;shader.uniforms.roadSnow=SeoulWeather.uniforms.snow;
    shader.vertexShader='varying vec3 roadWorld;attribute float pavement;varying float surfaceMask;\n'+shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\nroadWorld=position;surfaceMask=pavement;');
@@ -63,6 +63,7 @@ window.drawSeoulStreets=function(T,scene,world){
    // concrete parapets and backed steel beams follow the shared road outline.
    const borders=world.roadBorders(e);
    for(const border of borders){
+     if(world.brokenRails?.has(border.key))continue;
      if(!bridge&&!freeway&&border.sign)continue;
      const {a,b,nx,nz}=border,length=Math.hypot(b[0]-a[0],b[2]-a[2]);
      const at=(t,d,h)=>[a[0]+(b[0]-a[0])*t+nx*d,a[1]+(b[1]-a[1])*t+h,a[2]+(b[2]-a[2])*t+nz*d];
@@ -96,6 +97,7 @@ window.drawSeoulStreets=function(T,scene,world){
      if(feature&2){for(let l=-width+.35;l<width-.4;l+=1.04)band(Math.min(s0,s0+dir*3),Math.max(s0,s0+dir*3),l,Math.min(l+.52,width),.033,colors.white);}
      if(feature&1){const s=Math.max(.6,Math.min(e.len-1.5,s0+dir*1.3)),l=-width-.38;
        const foot=p(s,l);if(HanRoadClearance.blocked(world,foot[0],foot[2],.3,foot[1],foot[1]+5.6))continue;
+       world.scenery?.post(group,foot[0],foot[2],.10,foot[1],foot[1]+5.6,'steel');
        wall(s,s+.20,l,0,5.6,colors.steel);band(s,s+.16,l,l+3.7,5.58,colors.steel);
        quad(p(s,l+2.2,5.09),p(s,l+3.7,5.09),p(s,l+3.7,5.57),p(s,l+2.2,5.57),signalFace);
        quad(p(s-.02,l+3.25,5.23),p(s-.02,l+3.52,5.23),p(s-.02,l+3.52,5.45),p(s-.02,l+3.25,5.45),signalLens);
@@ -103,7 +105,9 @@ window.drawSeoulStreets=function(T,scene,world){
    }
    if(bridge){
      band(0,e.len,-width-.32,width+.32,-.81,colors.deck);
-     for(const [s,end] of HanRoadClearance.piers(world,e,phase)){const l=Math.min(2.4,width*.45);for(const v of [-l,l])wall(s,end,v,-11,-.8,colors.pier);band(s,end,-l,l,-1.05,colors.pier);}
+     for(const [s,end] of HanRoadClearance.piers(world,e,phase)){const l=Math.min(2.4,width*.45);
+       const a=p(s,0),b=p(end,0);world.scenery?.wall(group,a[0],a[2],b[0],b[2],l*2,Math.min(a[1],b[1])-11,Math.max(a[1],b[1])-.8);
+       for(const v of [-l,l])wall(s,end,v,-11,-.8,colors.pier);band(s,end,-l,l,-1.05,colors.pier);}
    }
    if(!bridge&&!(e.flags&128)){
      const urban=!freeway&&!(e.flags&64)&&rank<7;
@@ -129,14 +133,22 @@ window.drawSeoulStreets=function(T,scene,world){
      }
    }
  }
- SeoulTransit.addTile(k,world,quad,colors);
+ SeoulTransit.addTile(k,world,quad,colors,group);
  if(pos.length){const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));g.setAttribute('color',new T.Float32BufferAttribute(col,3));g.setAttribute('pavement',new T.Uint8BufferAttribute(pavement,1));g.computeVertexNormals();g.computeBoundingSphere();const m=new T.Mesh(g,mat);m.receiveShadow=true;group.add(m);}
  furniture.add(group,k);
  group.name='서울 도로 '+k;scene.add(group);return group;
  }
- function update(s){const p=world.point(s);const i=Math.floor(p.x/tile),j=Math.floor(p.z/tile),current=i+','+j;if(current===previous)return;previous=current;
+ function update(s){const p=world.point(s);const i=Math.floor(p.x/tile),j=Math.floor(p.z/tile),current=i+','+j;
+   if(revision!==(world.railRevision||0)){
+     for(const k of world.damagedTiles||[]){
+       const g=live.get(k);if(!g)continue;
+       world.scenery?.remove(g);g.removeFromParent();g.traverse(o=>{if(o.isMesh&&!o.isInstancedMesh)o.geometry.dispose();if(o.isInstancedMesh)o.dispose();});live.delete(k);
+     }
+     world.damagedTiles?.clear();revision=world.railRevision;previous='';
+   }
+   if(current===previous)return;previous=current;
    const wanted=new Set();for(let x=i-3;x<=i+3;x++)for(let z=j-3;z<=j+3;z++){const k=x+','+z;if(world.grid.has(k)||furniture.has(k)||SeoulTransit.has(k))wanted.add(k);}
-   for(const [k,g] of live)if(!wanted.has(k)){g.removeFromParent();g.traverse(o=>{if(o.isMesh&&!o.isInstancedMesh)o.geometry.dispose();if(o.isInstancedMesh)o.dispose();});live.delete(k);}
+   for(const [k,g] of live)if(!wanted.has(k)){world.scenery?.remove(g);g.removeFromParent();g.traverse(o=>{if(o.isMesh&&!o.isInstancedMesh)o.geometry.dispose();if(o.isInstancedMesh)o.dispose();});live.delete(k);}
    for(const k of wanted)if(!live.has(k))live.set(k,make(world.grid.get(k)||[],k));
  }
  return {update};

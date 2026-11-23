@@ -63,6 +63,8 @@ function syncAudio(gas,dt){
  const shot=exhaust.step(car,gas,dt,driving&&kind===0);
  vehicle?.setExhaustPulse?.(shot.glow);
  mixer?.update(car,traffic?.cars||[],kind,gas,audioOn&&driving,shot.pulse,cameraMode===1);
+ if(car.pendingContact&&audioOn&&driving)mixer?.impact(car.pendingContact.material,car.pendingContact.dv);
+ car.pendingContact=null;
 }
 $("gear").onclick=()=>{if(mode==="driving")direction();};
 function direction(){note(car.changeDirection()?(car.forward?"전진 기어":"후진 기어"):"정차 후 전환할 수 있습니다");}
@@ -114,9 +116,9 @@ document.addEventListener("wheel",e=>{
  if(!orbit.active||$("atlas").open||!$("panel").hidden)return;
  e.preventDefault();orbit.radius=clamp(orbit.radius*Math.exp(Math.sign(e.deltaY)*.13),3.5,12);
 },{passive:false});
-function positionCar(dt,snap=false){if(!vehicle)return;skinDamage(car.damage);damageNotice();const h=road.height(car.s),s=Math.sin(car.yaw),c=Math.cos(car.yaw);
+function positionCar(dt,snap=false){if(!vehicle)return;skinDamage(car.damage);damageNotice();const h=car.flight?.y??road.height(car.s),s=Math.sin(car.yaw),c=Math.cos(car.yaw);
  vehicle.group.position.set(car.x,h+car.heave,car.z);vehicle.group.rotation.set(car.pitch,car.yaw,car.roll,"YXZ");vehicle.updateChassis(car);vehicle.brakeLights.forEach(m=>m.emissiveIntensity=car.braking>.1?3.9:1.1);
- shadow.position.set(car.x,h+.035,car.z);shadow.rotation.z=car.yaw;vehicle.group.visible=cameraMode===0||orbit.active;cockpit.group.visible=cameraMode===1&&!orbit.active;
+ shadow.visible=!car.flight;shadow.position.set(car.x,h+.035,car.z);shadow.rotation.z=car.yaw;vehicle.group.visible=cameraMode===0||orbit.active;cockpit.group.visible=cameraMode===1&&!orbit.active;
  const point=(v,lateral,vertical,long)=>v.set(car.x+c*lateral+s*long,h+vertical,car.z-s*lateral+c*long);
  if(orbit.active){
  const arm=orbit.radius*Math.cos(orbit.elevation);
@@ -144,7 +146,7 @@ async function init(){try{
  renderer=new T.WebGLRenderer({antialias:true,powerPreference:"high-performance",alpha:false});renderer.outputColorSpace=T.SRGBColorSpace;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.02;renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;$("stage").append(renderer.domElement);
  scene=new T.Scene();camera=new T.PerspectiveCamera(55,1,.06,6800);scene.add(camera);qualityApply();
  if(freeDrive){const graph=await readSeoulBlock(SEOUL_DRIVE_GRAPH);road=makeSeoulNetwork(graph,road);departure=routeQuery.has("at")?Math.max(0,Math.min(road.stops.length-1,Math.trunc(requested)||0)):!routeQuery.has("route")?Math.max(0,road.stops.findIndex(v=>v.name.startsWith("가로수길"))):Math.max(0,["sW","sE","nW","nE"].indexOf(courseId));}
- car=new DriveModel(road);
+ road.scenery=HanCollision.scenery();car=new DriveModel(road);
  const weather=SeoulWeather.start(T,scene,road);
  let resumeMap=false,mapNetwork;
  const getNetwork=()=>mapNetwork??=(async()=>makeSeoulNetwork(await readSeoulBlock(SEOUL_DRIVE_GRAPH),road))().catch(e=>{mapNetwork=null;throw e;});
@@ -163,7 +165,12 @@ async function init(){try{
  if(mode==="driving"){acc+=dt;while(acc>=1/120){car.step(input,1/120);traffic.step(1/120,car);acc-=1/120;}traffic.render(car);roadView.update(car.s,car.lateral);elapsed+=dt;totalTime+=dt;
  if(!freeDrive&&car.s>=road.length-3){setMode("finished");showIntro("코스 완주","다시 주행");$("introSpec").textContent="주행 시간 "+Math.floor(totalTime/60)+"분 "+Math.floor(totalTime%60)+"초";}}
  else acc=0;
- cityView.update(car.s);positionCar(dt);syncAudio(input.gas,dt);weather.update(renderTime,car);sky.update(camera,car,renderTime,quality==="ultra",cockpit.group);renderer.render(scene,camera);
+ cityView.update(car.s);positionCar(dt);syncAudio(input.gas,dt);
+ if(mode==='driving'&&car.stranded&&(car.landingTime+=dt)>.45){
+   setMode('finished');showIntro(road.isWater?.(car.x,car.z)?'침수로 주행 종료':'교량 아래 착지','도로에서 다시 시작');
+   $('introSpec').textContent='M 지도에서 다른 도로를 선택할 수 있습니다.';
+ }
+ weather.update(renderTime,car);sky.update(camera,car,renderTime,quality==="ultra",cockpit.group);renderer.render(scene,camera);
  ui+=dt;if(ui>.09){telemetry();ui=0;}requestAnimationFrame(animate);}
  requestAnimationFrame(animate);window.addEventListener("resize",qualityApply);
  renderer.domElement.addEventListener("webglcontextlost",e=>{e.preventDefault();errorState("그래픽 연결이 끊겼습니다. 페이지를 새로 열어 주세요.");});

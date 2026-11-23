@@ -51,10 +51,21 @@ window.createHanWorld=function(id){
  world.stops=[{s:8,name:"본선 시작점"}];for(const b of crossings)if(b.s>700&&b.s<world.length-600&&b.overRoad)world.stops.push({s:Math.max(8,b.s-230),name:b.name+" 진입 전"});
  // Road-deck joints and small paving variation are modelled surface profiles.
  world.surfaceHeight=(s,l)=>{
+   const over=Math.abs(l)-world.lanesAt(s)*1.75-.78;
+   if(over>0&&l<0){
+     if(world.riverSide<0){
+       const bank=world.waterY+.88,deck=world.height(s);
+       if(over<=2)return deck-.12-.05*over;
+       if(over<=11)return deck-.22+(bank-deck+.22)*(over-2)/9;
+       return over<=16?bank:Math.max(world.waterY,bank-(over-16)*.27);
+     }
+     return world.height(s)-.08-Math.min(82,over)*1.22/82;
+   }
    const phase=(s+.075*l)/96;
    const joint=(phase-Math.round(phase))*96;
    return world.height(s)+.0023*Math.sin(s*.83+l*.35)+.0013*Math.sin(s*2.18-l*.73)
      -.010*Math.exp(-joint*joint/.023);
  };
+ world.tourPanel=(s,side)=>Math.floor(Math.max(0,s)/6)+'/'+side;
  return world;
 };

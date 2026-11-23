@@ -73,6 +73,7 @@ window.buildMappedDistricts=function(T,world,root,Batch,panes,solid,landmarks){
        for(let j=0;j<ring.length;j++){
          const [ax,az]=ring[j],[bx,bz]=ring[(j+1)%ring.length],length=Math.hypot(bx-ax,bz-az);
          if(length<.01)continue;
+         world.scenery?.wall(id,ax,az,bx,bz,.08,bottom,top);
          const tone=.67+.19*(.55*(bz-az)-.83*(bx-ax))/length+.11*(seed%11)/10;
          const tint=pigment?pigment.clone().lerp(color(0xffffff),.32).multiplyScalar(tone):new T.Color(tone,tone*.98,tone*.95);
          const mx=(ax+bx)*.5,mz=(az+bz)*.5;
@@ -128,13 +129,15 @@ window.buildMappedDistricts=function(T,world,root,Batch,panes,solid,landmarks){
        batch.quad(signMaterial,a,b,[b[0],b[1]+.62,b[2]],[a[0],a[1]+.62,a[2]],color(0xffffff),.5,48/canvas.height,1-(cy+48)/canvas.height,col*.5);
      });
    }
-   const group=batch.finish("Seoul map "+id);group.userData.signMaterial=signMaterial;
+   const group=batch.finish("Seoul map "+id);group.userData.signMaterial=signMaterial;group.userData.colliderOwner=id;
    group.children.forEach(mesh=>{mesh.castShadow=panes.includes(mesh.material);});return group;
  }
  const terrain=new Batch(),water=window.HAN_WATER.polygons;
  const outer=[[-40000,-35000],[-40000,35000],[40000,35000],[40000,-35000]];
  const rings=water.map(poly=>poly.map(r=>r.slice(0,-1).map(([lon,lat])=>{const p=world.project(lon,lat);return [p.x,p.z];})));
  world.waterPath=new Path2D();
+ const waterTest=document.createElement('canvas').getContext('2d');
+ world.isWater=(x,z)=>waterTest.isPointInPath(world.waterPath,x,z,'evenodd');
  for(const polygon of rings)for(const ring of polygon){ring.forEach(([x,z],i)=>i?world.waterPath.lineTo(x,z):world.waterPath.moveTo(x,z));world.waterPath.closePath();}
  const ground=color(0x909188);
  fill(terrain,[outer,...rings.map(p=>p[0])],.10,ground);
@@ -154,7 +157,7 @@ window.buildMappedDistricts=function(T,world,root,Batch,panes,solid,landmarks){
      diffuseColor.rgb*=variation*mix(vec3(.27,.32,.40),vec3(1.11,1.08,1.01),daylight);`);
  };
  land.traverse(p=>{if(p.isMesh)p.material=soil;});
- function remove(g){g.removeFromParent();g.traverse(o=>o.geometry?.dispose());const m=g.userData.signMaterial;if(m){m.map.dispose();m.dispose();}}
+ function remove(g){world.scenery?.remove(g.userData.colliderOwner);g.removeFromParent();g.traverse(o=>o.geometry?.dispose());const m=g.userData.signMaterial;if(m){m.map.dispose();m.dispose();}}
  let previousPoint=null;
  function update(s){
    const location=world.point(s,0);if(!previousPoint||Math.hypot(location.x-previousPoint.x,location.z-previousPoint.z)>130){

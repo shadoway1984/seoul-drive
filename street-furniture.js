@@ -62,6 +62,7 @@ window.createSeoulFurniture=function(T,world){
       if(code>0){
         const {species,seed:v,h,w}=HanRoadClearance.treeMetrics(x,z,label);
         const base=rows[k+3]/100;rod(trunk,bark,x,base,z,x,base+h*.68,z,.8+v*.55);
+        world.scenery?.post(group,x,z,.16*(.8+v*.55),base,base+h*.68,'wood');
         for(let n=0;n<3;n++){
           const a=v*6.28+n*2.094,dx=Math.cos(a)*w*.24,dz=Math.sin(a)*w*.24;
           rod(trunk,bark,x,base+h*.34,z,x+dx,base+h*.68,z+dz,.42);
@@ -73,6 +74,7 @@ window.createSeoulFurniture=function(T,world){
         const height=rows[k+3]/100,angle=rows[k+4]/1000;
         const nx=Math.sin(angle),nz=Math.cos(angle),h=/대교|고가|교량/.test(label)?9:7.7;
         rod(pole,metal,x,height,z,x,height+h,z);
+        world.scenery?.post(group,x,z,.14,height,height+h,'steel');
         rod(arm,metal,x,height+h-.4,z,x+1.1*nx,height+h+.28,z+1.1*nz);
         rod(arm,metal,x+1.1*nx,height+h+.28,z+1.1*nz,x+2.3*nx,height+h+.34,z+2.3*nz);
         stem.position.set(x+2.4*nx,height+h+.32,z+2.4*nz);stem.scale.set(1,1,1);

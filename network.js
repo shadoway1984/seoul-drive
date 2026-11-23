@@ -196,6 +196,13 @@ window.makeSeoulNetwork=function(data,base){
        best=q.d2;height=at(other,q.s).y;
      }
    }
+   if(s===k && Math.abs(l)>world.widthAt(e,k)-.4 && !(e.flags&32)){
+     for(const border of world.roadBorders(e)){
+       if(!border.step||border.sign!==Math.sign(l)||k<border.s||k>border.t)continue;
+       const beyond=Math.abs(l)-world.widthAt(e,k);
+       if(beyond>=0 && beyond<border.sidewalk)height+=border.step;
+     }
+   }
    return height-.004*Math.exp(-Math.pow(((k%48)-24)/.16,2));
  };
  world.nearest=(px,pz)=>project(world.current,px,pz);
@@ -251,7 +258,19 @@ window.makeSeoulNetwork=function(data,base){
    }
    return Math.sqrt(Math.max(0,radius*radius-project(edge,px,pz).lateral**2));
  };
- Object.assign(world,makeSeoulRoadGeometry(world));world.bridgeEntries=candidates;return world;
+ Object.assign(world,makeSeoulRoadGeometry(world));
+ world.floorBelow=(x,z,ceiling)=>{
+   const water=!!world.isWater?.(x,z);
+   let floor={y:water?world.waterY:.10,water};
+   for(const e of world.edgesIn(x-1,z-1,x+1,z+1)){
+     const q=project(e,x,z);
+     if(q.raw<0||q.raw>e.len||Math.abs(q.lateral)>world.widthAt(e,q.s)+.12)continue;
+     const y=at(e,q.s).y;
+     if(y<=ceiling && y>floor.y)floor={...q,y,water:false};
+   }
+   return floor;
+ };
+ world.bridgeEntries=candidates;return world;
 };
 
 
@@ -354,7 +373,20 @@ function makeSeoulRoadGeometry(world){
        for(const faces of [g.faces,g.junction])for(const tri of faces){const cut=interval(p,q,tri);if(cut)blocked.push(cut);}
      }
      for(const tri of road.junction){const cut=interval(p,q,tri);if(cut)blocked.push(cut);}
-     function keep(lo,hi){if((hi-lo)*len>.008)borders.push({a:mix(a,b,lo),b:mix(a,b,hi),nx,nz,sign,s:s+(t-s)*lo,t:s+(t-s)*hi});}
+     function keep(lo,hi){
+       if((hi-lo)*len<=.008)return;
+       const rank=e.flags&15,material=e.flags&32?'parapet':rank<2?'steel':'curb';
+       const urban=!(e.flags&(64|128))&&rank<7;
+       const step=material==='curb'?(!sign||urban?.13:(e.flags&128?0:.015)):0;
+       const sidewalk=sign?(urban?(rank<4?2.15:1.35):.22):.28;
+       const pieces=material==='curb'?1:Math.ceil((hi-lo)*len/3.8);
+       const id=e.i+'/'+borders.length;
+       for(let i=0;i<pieces;i++){
+         const u=lo+(hi-lo)*i/pieces,v=lo+(hi-lo)*(i+1)/pieces;
+         borders.push({a:mix(a,b,u),b:mix(a,b,v),nx,nz,sign,s:s+(t-s)*u,t:s+(t-s)*v,
+           material,step,sidewalk,key:id+'/'+i,edge:e});
+       }
+     }
      let last=0;blocked.sort((x,y)=>x[0]-y[0]);for(const [lo,hi] of blocked){if(lo>last)keep(last,lo);last=Math.max(last,hi);}if(last<1)keep(last,1);
    }
    return cache(boundaries,e,borders);

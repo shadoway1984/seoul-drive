@@ -14,10 +14,12 @@ window.HanCollision = (() => {
   const extent = (b,axes,n) => b.halfWidth*Math.abs(dot(axes[0],n))+b.halfLength*Math.abs(dot(axes[1],n));
   function pointSpeed(b,px,pz) {
     const [left,forward]=basis(b);
-    return {x:forward.x*b.u+left.x*b.v+b.omega*(pz-b.z),
-            z:forward.z*b.u+left.z*b.v-b.omega*(px-b.x)};
+    const cg=b.centerOfMassZ||0;
+    return {x:forward.x*b.u+left.x*b.v+b.omega*(pz-b.z-cg*forward.z),
+            z:forward.z*b.u+left.z*b.v-b.omega*(px-b.x-cg*forward.x)};
   }
-  const lever = (b,px,pz,n) => (pz-b.z)*n.x-(px-b.x)*n.z;
+  const lever = (b,px,pz,n) => (pz-b.z)*n.x-(px-b.x)*n.z-
+    (b.centerOfMassZ||0)*(Math.cos(b.yaw)*n.x-Math.sin(b.yaw)*n.z);
   function invMass(b,px,pz,n) {
     return b ? 1/b.mass + lever(b,px,pz,n)**2/b.inertia : 0;
   }
@@ -51,7 +53,7 @@ window.HanCollision = (() => {
     }
     b.damage.revision++;
   }
-  function resolve(a,b,n,px,pz,depth) {
+  function resolve(a,b,n,px,pz,depth,material=b?'vehicle':'concrete') {
     function relative(axis) {
       return (b?dot(pointSpeed(b,px,pz),axis):0)-dot(pointSpeed(a,px,pz),axis);
     }
@@ -64,6 +66,8 @@ window.HanCollision = (() => {
       const restitution=vn < -1.5 ? (b ? .08 : .045) : 0;
       const j=-(1+restitution)*vn/(invMass(a,px,pz,n)+invMass(b,px,pz,n));
       push(n,j);
+      a.contactSound?.(material,j/a.mass);
+      b?.contactSound?.(material,j/b.mass);
       const t={x:-n.z,z:n.x}, maxFriction=(b ? .44 : .31)*j;
       const jt=-relative(t)/(invMass(a,px,pz,t)+invMass(b,px,pz,t));
       push(t,Math.max(-maxFriction,Math.min(maxFriction,jt)));
@@ -97,10 +101,26 @@ window.HanCollision = (() => {
     const sa=span(corners(a,aa),n,plane,t),sb=span(corners(b,bb),n,plane,t);
     let mid=(Math.max(sa[0],sb[0])+Math.min(sa[1],sb[1]))*.5;
     if(!Number.isFinite(mid))mid=(dot(a,t)+dot(b,t))*.5;
-    resolve(a,b,n,n.x*plane+t.x*mid,n.z*plane+t.z*mid,depth);
+    resolve(a,b.fixed?null:b,n,n.x*plane+t.x*mid,n.z*plane+t.z*mid,depth,b.material||'vehicle');
     return true;
   }
   const localBorders=new WeakMap();
+  function breakRail(body,road,key,material,n,x,z,tile){
+    if(road.brokenRails?.has(key))return true;
+    const speed=dot(pointSpeed(body,x,z),n);
+    if(speed<=0)return false;
+    const mass=1/invMass(body,x,z,n),energy=.5*mass*speed*speed;
+    // Estimated energy absorption of one installed section, not a crash rating.
+    const capacity=material==='steel'?48000:190000;
+    if(energy<=capacity)return false;
+    const loss=mass*(speed-Math.sqrt(2*(energy-capacity)/mass));
+    impulse(body,x,z,n,-loss);
+    mark(body,x,z,{x:-n.x,z:-n.z},loss/body.mass);
+    body.contactSound?.(material,Math.max(2,loss/body.mass));
+    (road.brokenRails??=new Set()).add(key);
+    (road.damagedTiles??=new Set()).add(tile);road.railRevision=(road.railRevision||0)+1;
+    return true;
+  }
   function networkRails(b,road,height){
     let cache=localBorders.get(b);
     if(!cache||cache.road!==road||Math.hypot(cache.x-b.x,cache.z-b.z)>6){
@@ -111,11 +131,13 @@ window.HanCollision = (() => {
              Math.min(r.a[2],r.b[2])-12<=b.z&&Math.max(r.a[2],r.b[2])+12>=b.z)lines.push(r);
         }
       cache={road,x:b.x,z:b.z,lines};localBorders.set(b,cache);
+      b.climbing?.clear();
     }
     const axes=basis(b),radius=Math.hypot(b.halfWidth,b.halfLength);
     for(let pass=0;pass<3;pass++){
       let changed=false;
       for(const r of cache.lines){
+        if(road.brokenRails?.has(r.key))continue;
         const [x,y,z]=r.a,dx=r.b[0]-x,dz=r.b[2]-z,len=Math.hypot(dx,dz),tx=dx/len,tz=dz/len;
         const t=(b.x-x)*tx+(b.z-z)*tz,n=(b.x-x)*r.nx+(b.z-z)*r.nz;
         if(t< -radius||t>len+radius||Math.abs(n)>radius+.2||Math.abs(height-y-(r.b[1]-y)*Math.min(1,Math.max(0,t/len)))>1.7)continue;
@@ -136,7 +158,27 @@ window.HanCollision = (() => {
         for(const p of poly){const v=(p.x-x)*r.nx+(p.z-z)*r.nz;low=Math.min(low,v);if(v>depth){depth=v;contact=p;}}
         if(depth<=.0001||low>.30)continue;
         const normal={x:r.nx,z:r.nz};
-        resolve(b,null,normal,contact.x,contact.z,depth);
+        const speed=dot(pointSpeed(b,contact.x,contact.z),normal);
+        if(r.material==='curb'&&b.wheels){
+          // Compare wheel-normal kinetic energy and available driven-wheel thrust
+          // to the work and moment required to lift a loaded wheel onto the step.
+          const radius=Math.min(...b.wheels.map(w=>w.radius)),h=r.step;
+          const arm=Math.sqrt(Math.max(0,2*radius*h-h*h));
+          const thrust=Math.abs(b.driveForce||0)*Math.abs(dot(normal,basis(b)[1]));
+          if(h<radius&&(b.climbing?.has(r.key)||h<=.02||speed*speed>=2*9.81*h||thrust*(radius-h)>=b.mass*9.81*.30*arm)){
+            if(speed>.65 && !b.climbing?.has(r.key)){
+              b.contactSound?.('curb',speed*.4);
+              b.climbing?.add(r.key);
+            }
+            continue;
+          }
+          if(n>0||speed<=0)continue;
+        }
+        if(r.material==='steel'||r.material==='parapet'){
+          const e=r.edge,size=road.cellSize,tile=Math.floor((e.ax+e.bx)/(2*size))+','+Math.floor((e.az+e.bz)/(2*size));
+          if(breakRail(b,road,r.key,r.material,normal,contact.x,contact.z,tile))continue;
+        }
+        resolve(b,null,normal,contact.x,contact.z,depth,r.material);
         const rest=depth-Math.max(0,depth-.0015)*.85;
         b.x-=r.nx*rest;b.z-=r.nz*rest;changed=true;
       }
@@ -144,6 +186,7 @@ window.HanCollision = (() => {
     }
   }
   function rail(b,road) {
+    if(b.flight)return;
     const near=road.network?road.locate(b):road.nearest(b.x,b.z,b.s);
     b.s=near.s; b.lateral=near.lateral;
     if(road.network){
@@ -169,8 +212,54 @@ window.HanCollision = (() => {
     const depth=max-dot(near,n)-limit;
     if(depth<=0)return;
     const hits=poly.filter((p,i)=>max-ahead[i]<.018);
-    resolve(b,null,n,hits.reduce((s,p)=>s+p.x,0)/hits.length,hits.reduce((s,p)=>s+p.z,0)/hits.length,depth);
+    const x=hits.reduce((s,p)=>s+p.x,0)/hits.length,z=hits.reduce((s,p)=>s+p.z,0)/hits.length;
+    if(road.tourPanel && Math.abs(near.lateral)>limit+b.halfWidth+1)return;
+    if(road.tourPanel){
+      const station=road.nearest(x,z,b.s).s;
+      if(breakRail(b,road,road.tourPanel(station,side),'parapet',n,x,z,Math.floor(station/288)))return;
+    }
+    resolve(b,null,n,x,z,depth);
     b.lateral=(b.x-near.x)*Math.cos(near.yaw)-(b.z-near.z)*Math.sin(near.yaw);
   }
-  return {pair,rail,networkRails,newDamage:()=>({zones:{},revision:0,nose:0,leftFront:0,rightFront:0})};
+  function scenery(){
+    const grid=new Map(),owners=new Map(),cell=32;
+    function add(owner,o,rx,rz){
+      let entries=owners.get(owner);if(!entries)owners.set(owner,entries=[]);
+      for(let i=Math.floor((o.x-rx)/cell);i<=Math.floor((o.x+rx)/cell);i++)
+      for(let j=Math.floor((o.z-rz)/cell);j<=Math.floor((o.z+rz)/cell);j++){
+        const key=i+','+j;let bucket=grid.get(key);if(!bucket)grid.set(key,bucket=new Set());
+        bucket.add(o);entries.push([key,o]);
+      }
+    }
+    function wall(owner,ax,az,bx,bz,width,bottom,top,material='concrete'){
+      const dx=bx-ax,dz=bz-az,len=Math.hypot(dx,dz);if(len<.001)return;
+      const o={fixed:true,x:(ax+bx)/2,z:(az+bz)/2,yaw:Math.atan2(dx,dz),halfWidth:width/2,halfLength:len/2,bottom,top,material};
+      add(owner,o,(Math.abs(dx)+width)/2,(Math.abs(dz)+width)/2);
+    }
+    function post(owner,x,z,r,bottom,top,material){add(owner,{x,z,r,bottom,top,material},r,r);}
+    function remove(owner){
+      for(const [key,o] of owners.get(owner)||[]){const bucket=grid.get(key);bucket.delete(o);if(!bucket.size)grid.delete(key);}
+      owners.delete(owner);
+    }
+    function hit(car,y){
+      const seen=new Set(),radius=Math.hypot(car.halfWidth,car.halfLength);
+      for(let i=Math.floor((car.x-radius)/cell);i<=Math.floor((car.x+radius)/cell);i++)
+      for(let j=Math.floor((car.z-radius)/cell);j<=Math.floor((car.z+radius)/cell);j++)
+      for(const o of grid.get(i+','+j)||[]){
+        if(seen.has(o)||y+1.415<o.bottom||y+.12>o.top)continue;seen.add(o);
+        if(!o.r){pair(car,o);continue;}
+        const [left,fwd]=basis(car),d={x:o.x-car.x,z:o.z-car.z};
+        const lx=Math.max(-car.halfWidth,Math.min(car.halfWidth,dot(d,left)));
+        const lz=Math.max(-car.halfLength,Math.min(car.halfLength,dot(d,fwd)));
+        const x=car.x+lx*left.x+lz*fwd.x,z=car.z+lx*left.z+lz*fwd.z,len=Math.hypot(o.x-x,o.z-z);
+        if(len>=o.r)continue;
+        if(len>.00001){resolve(car,null,{x:(o.x-x)/len,z:(o.z-z)/len},x,z,o.r-len,o.material);continue;}
+        const side=car.halfWidth-Math.abs(lx),end=car.halfLength-Math.abs(lz);
+        const axis=side<end?left:fwd,sign=Math.sign(side<end?lx:lz)||1;
+        resolve(car,null,{x:axis.x*sign,z:axis.z*sign},x,z,o.r+Math.min(side,end),o.material);
+      }
+    }
+    return {wall,post,remove,hit};
+  }
+  return {pair,rail,networkRails,scenery,newDamage:()=>({zones:{},revision:0,nose:0,leftFront:0,rightFront:0})};
 })();

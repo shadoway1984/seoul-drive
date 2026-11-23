@@ -443,8 +443,8 @@ window.buildRoad = function buildRoad(T, scene, world) {
           }
         }
       }
-      barrier(walls,a,d,medA,medD,jersey,0xa3a49e);
-      barrier(walls,a,d,-halfA-.75,-halfD-.75,sideWall,0x92938f);
+      if(!world.brokenRails?.has(world.tourPanel(s,1)))barrier(walls,a,d,medA,medD,jersey,0xa3a49e);
+      if(!world.brokenRails?.has(world.tourPanel(s,-1)))barrier(walls,a,d,-halfA-.75,-halfD-.75,sideWall,0x92938f);
       barrier(walls,oa,od,halfA+.67,halfD+.67,sideWall,0x939790);
       if(Math.min(a.separation,d.separation)>halfA+halfD+2.4)
         barrier(walls,oa,od,-halfA-.56,-halfD-.56,jersey,0xa3a49e);
@@ -486,6 +486,7 @@ window.buildRoad = function buildRoad(T, scene, world) {
       }
       // Stainless running rail, terminal clips and small amber/white reflectors.
       for(const side of [-1,1]){
+        if(side<0&&world.brokenRails?.has(world.tourPanel(s,-1)))continue;
         const sf=side<0?a:oa,ef=side<0?d:od;
         const l=side*(halfA+.76),r=side*(halfD+.76);
         girder(walls,P(sf,l,.73),P(sf,l,1.11),.074,.091,metal,rc(sf,l));
@@ -557,6 +558,7 @@ window.buildRoad = function buildRoad(T, scene, world) {
   let stopped=false;
   function update(s,lateral=0){
     if(stopped)return;
+    for(const k of world.damagedTiles||[])drop(k);world.damagedTiles?.clear();
     s=clamp(Number(s)||0,0,length);liveS.value=s;liveL.value=Number(lateral)||0;
     const ix=Math.min(Math.ceil(length/span)-1,Math.floor(s/span));
     const lo=Math.max(0,ix-2),hi=Math.min(Math.ceil(length/span)-1,ix+6);
