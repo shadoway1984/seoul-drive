@@ -1,4 +1,23 @@
 /* Streamed dual carriageway, bridge structures and night lighting. Distances are metres. */
+window.createSeoulAsphalt=function(T){
+  const size=1024,canvas=document.createElement("canvas");
+  canvas.width=canvas.height=size;
+  const ctx=canvas.getContext("2d"),image=ctx.createImageData(size,size);
+  let seed=49814413;
+  const noise=()=>((seed=(Math.imul(seed,1664525)+1013904223)>>>0)/4294967296);
+  const coarse=new Float32Array(size*size/16);
+  for(let i=0;i<coarse.length;i++)coarse[i]=noise();
+  for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+    const aggregate=coarse[(y>>2)*(size>>2)+(x>>2)];
+    const value=119+(noise()-noise())*34+53*(aggregate-.5)+(noise()>.991?34:0);
+    const i=(y*size+x)*4;
+    image.data[i]=value;image.data[i+1]=value;image.data[i+2]=value;image.data[i+3]=255;
+  }
+  ctx.putImageData(image,0,0);
+  const map=new T.CanvasTexture(canvas);
+  map.wrapS=map.wrapT=T.RepeatWrapping;map.anisotropy=16;
+  return map;
+};
 window.buildRoad = function buildRoad(T, scene, world) {
   const root = new T.Group();
   root.name = "Han River carriageway";
@@ -17,18 +36,8 @@ window.buildRoad = function buildRoad(T, scene, world) {
     return tex;
   }
   function canvas(w,h) {const c=document.createElement("canvas");c.width=w;c.height=h;return c;}
-  function fineAsphalt(){
-    const c=canvas(512,512),ctx=c.getContext("2d"),pix=ctx.createImageData(512,512);
-    let rng=49814413;
-    function noise(){rng=(Math.imul(rng,1664525)+1013904223)>>>0; return rng/4294967296;}
-    for(let y=0;y<512;y++)for(let x=0;x<512;x++){
-      const aggregate=(noise()+noise()-1)*23, bit=88+aggregate+(noise()>.995?20:0);
-      const i=(y*512+x)*4;pix.data[i]=bit;pix.data[i+1]=bit+1;pix.data[i+2]=bit+3;pix.data[i+3]=255;
-    }
-    ctx.putImageData(pix,0,0);
-    const t=texture(c);t.wrapS=t.wrapT=T.RepeatWrapping;textures.push(t);return t;
-  }
-  const asphaltMap=fineAsphalt();
+  const asphaltMap=createSeoulAsphalt(T);
+  asphaltMap.colorSpace=T.SRGBColorSpace;textures.push(asphaltMap);
   function treeAtlas(){
     const c=canvas(768,384),ctx=c.getContext("2d");
     for(let variant=0;variant<3;variant++){

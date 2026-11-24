@@ -36,7 +36,8 @@ window.createAvanteExhaust=function(){
 };
 window.createSeoulSound=function(ctx){
  const master=ctx.createGain(),limiter=ctx.createDynamicsCompressor();
- master.gain.value=0;limiter.threshold.value=-12;limiter.ratio.value=4;master.connect(limiter);limiter.connect(ctx.destination);
+ master.gain.value=0;limiter.threshold.value=-8;limiter.knee.value=10;limiter.ratio.value=6;
+ limiter.attack.value=.003;limiter.release.value=.12;master.connect(limiter);limiter.connect(ctx.destination);
  let seed=91357;const noise=()=>((seed=(Math.imul(seed,1664525)+1013904223)>>>0)/2147483648)-1;
  const size=ctx.sampleRate*2,air=ctx.createBuffer(1,size,ctx.sampleRate),samples=air.getChannelData(0);
  for(let i=0;i<size;i++)samples[i]=noise();
@@ -97,13 +98,15 @@ window.createSeoulSound=function(ctx){
    };
  }
  const skid=window.SEOUL_TIRE_RECORDING?skidVoice(window.SEOUL_TIRE_RECORDING):null;
- const exhaustBus=ctx.createGain(),exhaustCabin=filter('lowpass',6300,.65);
- exhaustBus.connect(exhaustCabin);exhaustCabin.connect(master);
+ const exhaustBus=ctx.createGain(),exhaustCabin=filter('lowpass',6800,.707);
+ const cabinBody=filter('lowshelf',175,.707),outsideDetail=filter('highshelf',2600,.707);
+ exhaustBus.connect(exhaustCabin);exhaustCabin.connect(cabinBody);
+ cabinBody.connect(outsideDetail);outsideDetail.connect(master);
  function avante(){
    // Recorded exhaust harmonics are spaced about 36.7 Hz and 82 Hz.
    // Two firings per revolution; no tachometer track is available.
    const banks=window.ELANTRA_RECORDINGS.map((clip,i)=>({clip,rpm:i===0?1100:2460}));
-   const body=filter('highpass',32,.65),valve=filter('lowpass',400,.6);
+   const body=filter('highpass',30,.707),valve=filter('lowpass',400,.707);
    const level=gain();body.connect(valve);valve.connect(level);level.connect(exhaustBus);
    const inlet=filter('bandpass',680,.75),inletLevel=gain();
    inlet.connect(inletLevel);inletLevel.connect(master);
@@ -118,15 +121,17 @@ window.createSeoulSound=function(ctx){
      const t=ctx.currentTime,r=Math.min(6800,Math.max(700,rpm)),rev=r/6800;
      const load=cut?0:gas;
      // Equal-power fades avoid hard transitions when the gearbox drops RPM.
-     const lower=0;
-     const blend=Math.max(0,Math.min(1,Math.log(r/banks[lower].rpm)/Math.log(banks[lower+1].rpm/banks[lower].rpm)));
+     const effectiveRpm=r*(.93+.12*load);
+     const blend=Math.max(0,Math.min(1,Math.log(effectiveRpm/banks[0].rpm)/Math.log(banks[1].rpm/banks[0].rpm)));
      banks.forEach((b,i)=>{
-       const weight=i===lower?Math.cos(blend*Math.PI/2):i===lower+1?Math.sin(blend*Math.PI/2):0;
+       const weight=i===0?Math.cos(blend*Math.PI/2):Math.sin(blend*Math.PI/2);
        set(b.src.playbackRate,Math.max(.33,Math.min(2.8,r/b.rpm)),t,cut?.018:.035);set(b.weight.gain,weight,t,.035);
      });
-     set(exhaustCabin.frequency,inside?720:6900,t,.085);
-     set(valve.frequency,1450+1600*rev+load*(750+2550*rev),t,load>.3?.055:.095);
-     set(level.gain,enabled?(.16+.22*rev+.68*load)*(inside?.65:1)*(cut?.31:1):0,t,cut?.014:.045);
+     set(exhaustCabin.frequency,inside?1150:8100,t,.085);
+     set(cabinBody.gain,inside?3.0:0,t,.085);
+     set(outsideDetail.gain,inside?0:1.25,t,.085);
+     set(valve.frequency,1250+1950*rev+load*(950+2900*rev),t,load>.3?.055:.095);
+     set(level.gain,enabled?(.18+.18*rev+.56*load)*(inside?.67:1)*(cut?.36:1):0,t,cut?.014:.045);
      set(inlet.frequency,350+460*rev+load*225,t,.075);
      set(inletLevel.gain,enabled?load*(.12+.31*rev)*(inside?1.32:.74):0,t,.065);
      set(boostBand.frequency,1080+rev*1270,t,.12);

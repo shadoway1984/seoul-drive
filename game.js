@@ -46,8 +46,17 @@ function reset(place){endOrbitDrag();$("status").classList.remove("show");if(pla
  car.reset(place?place.s:freeDrive?road.spawn(departure):departure);if(place?.e){car.lateral=place.lane;const p=road.at(place.e,place.s,place.lane);car.x=p.x;car.z=p.z;}
  traffic?.reset(car.s);roadView?.update(car.s,car.lateral);cityView?.update(car.s);elapsed=0;totalTime=0;setMode("ready");$("introSpec").textContent=freeDrive?"서울 자동차 도로망　·　M 전체 지도":endpoint[0]+" → "+endpoint[1]+"　·　"+km(road.length)+" km";showIntro(road.routeName,"주행 시작");positionCar(1,true);telemetry();}
 function setView(value){endOrbitDrag();cameraMode=Number(value);$("camera").value=String(cameraMode);positionCar(1,true);note(["후방 추적 시점","운전석 시점","보닛 시점"][cameraMode]);}
-function qualityApply(){if(!renderer)return;const factor={ultra:Math.min(window.devicePixelRatio||1,2.25),high:Math.min(window.devicePixelRatio||1,1.4),balanced:.8}[quality];
- const budget={ultra:8294400,high:3686400,balanced:1600000}[quality];renderer.setPixelRatio(Math.min(factor,Math.sqrt(budget/(innerWidth*innerHeight))));renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
+function qualityApply(){
+ if(!renderer)return;
+ const dpr=window.devicePixelRatio||1;
+ const factor={ultra:Math.min(dpr*1.45,2.25),high:Math.min(dpr,1.5),balanced:.8}[quality];
+ const budget={ultra:8294400,high:3686400,balanced:1600000}[quality];
+ renderer.setPixelRatio(Math.min(factor,Math.sqrt(budget/(innerWidth*innerHeight))));
+ renderer.setSize(innerWidth,innerHeight,false);
+ sky?.setShadowResolution(quality==="ultra"?2048:quality==="high"?1024:512);
+ camera.aspect=innerWidth/innerHeight;
+ camera.updateProjectionMatrix();
+}
 function panel(open){$("panel").hidden=!open;$("settings").setAttribute("aria-expanded",String(open));if(open&&mode==="driving")pause();}
 $("start").onclick=start;$("hold").onclick=pause;$("settings").onclick=()=>panel($("panel").hidden);$("close").onclick=()=>panel(false);
 $("quality").onchange=e=>{quality=e.target.value;qualityApply();};$("camera").onchange=e=>setView(e.target.value);$("view").onclick=()=>setView((cameraMode+1)%3);
@@ -157,7 +166,7 @@ async function init(){try{
      const url=new URL(location.href);url.searchParams.delete('tour');url.searchParams.delete('at');url.searchParams.set('route','city');
      url.searchParams.set('edge',String(place.e.i));url.searchParams.set('station',String(place.s));location.assign(url.href);
    });
- setupRoute();sky=buildAtmosphere(T,scene,renderer,road);cityView=buildRiverCity(T,scene,road);roadView=freeDrive?drawSeoulStreets(T,scene,road):buildRoad(T,scene,road);
+ setupRoute();sky=buildAtmosphere(T,scene,renderer,road);qualityApply();cityView=buildRiverCity(T,scene,road);roadView=freeDrive?drawSeoulStreets(T,scene,road):buildRoad(T,scene,road);
  vehicle=buildCar(T);skinDamage=HanDamageView(T,vehicle.group.children[0]);scene.add(vehicle.group);cockpit=buildCockpit(T);camera.add(cockpit.group);shadow=groundShadow();traffic=buildTraffic(T,scene,road,vehicle);fitAvanteN(T,vehicle);
  const mapped=freeDrive&&routeQuery.has('edge')&&routeQuery.has('station')?road.respawnPlace(road.segments[Number(routeQuery.get('edge'))],Number(routeQuery.get('station'))):null;
  reset(mapped);$("start").disabled=false;if(mapped)start();telemetry();let prev=performance.now(),acc=0,ui=0,renderTime=0;

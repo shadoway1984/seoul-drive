@@ -11,7 +11,10 @@ window.fitAvanteN=function fitAvanteN(T,vehicle){
     const m=polished?new T.MeshPhysicalMaterial({clearcoat:1,clearcoatRoughness:.11}):new T.MeshStandardMaterial();
     m.name=name;m.color.setHex(color);m.metalness=metalness;m.roughness=polished?.26:.52;
     m.side=T.DoubleSide;
-    if(name==='paint'){m.metalness=.32;m.roughness=.31;m.clearcoatRoughness=.085;}
+    if(name==='paint'){
+      m.metalness=.35;m.roughness=.27;m.clearcoatRoughness=.075;
+      m.ior=1.52;
+    }
     if(name==='glass'){
       m.color.setHex(0x344b58);m.metalness=.12;m.roughness=.085;
       m.ior=1.52;m.clearcoatRoughness=.05;m.transparent=true;m.opacity=.76;
@@ -45,10 +48,12 @@ window.fitAvanteN=function fitAvanteN(T,vehicle){
     vehicle.wheels.forEach(wheel=>{const copy=mesh.clone();copy.scale.x=Math.sign(wheel.parent.position.x);wheel.add(copy);});
   }
   // Original Korean plate artwork, not a photograph of a road vehicle.
-  const canvas=document.createElement('canvas');canvas.width=512;canvas.height=112;const g=canvas.getContext('2d');
+  const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=224;const g=canvas.getContext('2d');g.scale(2,2);
   g.fillStyle='#dfe3da';g.fillRect(0,0,512,112);g.fillStyle='#24466e';g.fillRect(4,4,24,104);
+  g.strokeStyle='#91978e';g.lineWidth=1;g.strokeRect(.5,.5,511,111);
+  g.fillStyle='#939c99';for(const x of [17,494]){g.beginPath();g.arc(x,10,2.7,0,2*Math.PI);g.fill();}
   g.textAlign='center';g.textBaseline='middle';g.font='bold 77px "Malgun Gothic",sans-serif';g.fillStyle='#182127';g.fillText('381가 0724',268,58);
-  const texture=new T.CanvasTexture(canvas);texture.colorSpace=T.SRGBColorSpace;
+  const texture=new T.CanvasTexture(canvas);texture.colorSpace=T.SRGBColorSpace;texture.anisotropy=8;
   const plate=new T.MeshStandardMaterial({map:texture,roughness:.46,metalness:.08});
   const litPlate=plate.clone();litPlate.emissiveMap=texture;
   litPlate.emissive.setHex(0xbecde3);litPlate.emissiveIntensity=.16;

@@ -315,20 +315,25 @@ window.buildCar = function buildCar(T) {
   const tireProfile=[[-.100,.225],[-.123,.254],[-.126,.298],[-.117,.322],[-.093,.336],[-.063,.342],
     [.063,.342],[.093,.336],[.117,.322],[.126,.298],[.123,.254],[.100,.225],[-.100,.225]];
   // Draw sipes directly in tyre-space so the pattern rotates with the wheel.
-  const treadCanvas=document.createElement('canvas');treadCanvas.width=512;treadCanvas.height=192;
+  const treadCanvas=document.createElement('canvas');treadCanvas.width=2048;treadCanvas.height=768;
   const treadCtx=treadCanvas.getContext('2d');
+  treadCtx.scale(4,4);
   treadCtx.fillStyle='#a6a6a6';treadCtx.fillRect(0,0,512,192);
   treadCtx.lineJoin='round';
-  for(let i=0;i<=24;i++){
-    const u=i*512/24;
-    for(const [from,to,slant] of [[43,78,8],[79,96,5],[98,115,-4],[116,150,-9]]){
-      treadCtx.strokeStyle='#393939';treadCtx.lineWidth=2.2;treadCtx.beginPath();
-      treadCtx.moveTo(u,from);treadCtx.lineTo(u+slant,to);treadCtx.stroke();
+  const ribs=[[43,78,8],[79,96,5],[98,115,-4],[116,150,-9]];
+  for(let i=0;i<=48;i++){
+    const u=i*512/48;
+    for(const [from,to,slant] of ribs){
+      const x=u+(slant<0?3:0);
+      treadCtx.strokeStyle='#454545';treadCtx.lineWidth=1.5;treadCtx.beginPath();
+      treadCtx.moveTo(x,from);treadCtx.lineTo(x+slant*.35,(from+to)*.5);treadCtx.lineTo(x+slant,to);treadCtx.stroke();
+      treadCtx.strokeStyle='#727272';treadCtx.lineWidth=.55;treadCtx.beginPath();
+      treadCtx.moveTo(x+2.5,from+2);treadCtx.lineTo(x+slant*.69+2.5,to-3);treadCtx.stroke();
     }
   }
   for(const y of [72,84,108,119]){treadCtx.fillStyle='#515151';treadCtx.fillRect(0,y,512,2.5);}
-  const treadMap=new T.CanvasTexture(treadCanvas);treadMap.wrapS=T.RepeatWrapping;
-  rubber.bumpMap=treadMap;rubber.bumpScale=.008;
+  const treadMap=new T.CanvasTexture(treadCanvas);treadMap.wrapS=T.RepeatWrapping;treadMap.anisotropy=8;
+  rubber.bumpMap=treadMap;rubber.bumpScale=.0045;
   function cylinderX(target,r,h,mat,x=0,y=0,z=0){
     const m=add(target,new T.CylinderGeometry(r,r,h,36),mat);
     m.rotation.z=Math.PI/2;m.position.set(x,y,z);return m;
@@ -370,7 +375,7 @@ window.buildCar = function buildCar(T) {
     const pivot=new T.Group();pivot.position.set(side*.809,.344,axle);group.add(pivot);
     if(axle>0)frontPivots.push(pivot);
     const wheel=new T.Group();pivot.add(wheel);wheels.push(wheel);
-    const tyre=add(wheel,new T.LatheGeometry(tireProfile.map(([x,r])=>new T.Vector2(r,x)),48),rubber);
+    const tyre=add(wheel,new T.LatheGeometry(tireProfile.map(([x,r])=>new T.Vector2(r,x)),72),rubber);
     tyre.rotation.z=-Math.PI/2;
     cylinderX(wheel,.24,.17,black);
     cylinderX(wheel,.190,.025,cast,side*.086);

@@ -27,8 +27,9 @@ window.buildRiverCity = function buildRiverCity(T, scene, world) {
   function facade(kind) {
     const rand=rng(3891+kind*227), offices=kind>=2, gold=kind===4;
     const canvas=document.createElement('canvas');
-    canvas.width=canvas.height=1024;
+    canvas.width=canvas.height=2048;
     const c=canvas.getContext('2d');
+    c.scale(2,2);
     const cols=16, size=64;
     const warm=['#bf8f61','#e8c294','#ebc69c','#d4aa80','#a78363','#f3d7af','#968b7d'];
     const cool=['#91aeb7','#bed2ce','#bacaaf','#adc7d1','#e5e0cb','#a3b6bc'];
@@ -53,6 +54,7 @@ window.buildRiverCity = function buildRiverCity(T, scene, world) {
           grad.addColorStop(1,on?(warmChoice?'#796249':'#647d83'):'#151e27');
           c.fillStyle=grad;c.fillRect(xx,y0,ww,h);
           if(on) {
+            c.fillStyle='rgba(255,240,217,.24)';c.fillRect(xx+.5,y0+.5,ww-1,.75);
             if(rand()<.35){c.fillStyle='rgba(31,33,39,.6)';c.fillRect(xx,y0,ww,(.18+rand()*.5)*h);}
             if(rand()<.5){c.fillStyle='rgba(70,60,53,.52)';c.fillRect(xx+ww*.7,y0+h*.48,ww*.26,h*.52);}
             if(rand()<.21){c.fillStyle='rgba(253,236,194,.5)';c.fillRect(xx+1,y0+1,ww-2,2);}
@@ -67,17 +69,15 @@ window.buildRiverCity = function buildRiverCity(T, scene, world) {
       }
     }
     const tex=new T.CanvasTexture(canvas);
-    tex.wrapS=tex.wrapT=T.RepeatWrapping;tex.colorSpace=T.SRGBColorSpace;tex.anisotropy=4;
+    tex.wrapS=tex.wrapT=T.RepeatWrapping;tex.colorSpace=T.SRGBColorSpace;tex.anisotropy=8;
     textures.push(tex);
     const mat=material({map:tex,vertexColors:true,side:T.DoubleSide});
-    const day=document.createElement('canvas');day.width=day.height=1024;
+    const day=document.createElement('canvas');day.width=day.height=2048;
     const d=day.getContext('2d'),brick=kind===5,apartment=kind===1,glass=kind===2||kind===4,shop=kind===7;
+    d.scale(2,2);
     const rect=(x,y,w,h,fill)=>{d.fillStyle=fill;d.fillRect(x,y,w,h);};
     const wall=['#d4cabe','#d9d5c9','#426272','#c1b6a4','#b39f7f','#ad7362','#949998','#3b4347'][kind];
     rect(0,0,1024,1024,wall);
-    if(brick)for(let y=0;y<1024;y+=3)for(let x=(y%6?-3:0);x<1024;x+=7){
-      rect(x,y,6.5,2.5,'rgba(65,40,29,'+(.08+.22*rand())+')');
-    }
     for(let y=0;y<16;y++)for(let x=0;x<16;x++){
       const a=x*64,b=y*64;
       if(apartment&&x%5===4){
@@ -93,7 +93,10 @@ window.buildRiverCity = function buildRiverCity(T, scene, world) {
         grad.addColorStop(0,glass?'#90abb7':shop?'#8a9da1':'#86999d');
         grad.addColorStop(.55,glass?'#658390':'#647779');grad.addColorStop(1,shade>.52?'#4e626a':'#3f5158');
         rect(left,wy+1,ww,h-2,grad);
+        rect(left,wy+.5,ww,.65,'rgba(230,243,241,.65)');
+        rect(left+ww-.65,wy+1,.65,h-2,'rgba(15,28,35,.52)');
         if(rand()<(glass?.18:.48))rect(left,wy+1,ww,(h-3)*(.18+.62*rand()),'rgba(213,207,187,.72)');
+        if(glass){rect(left+.5,wy+h*.55,ww-1,.55,'rgba(178,211,218,.34)');}
         if(shop)rect(left+ww*.2,wy+h*.67,ww*.62,h*.33,'#424c49');
       }
       if(apartment){
@@ -102,9 +105,19 @@ window.buildRiverCity = function buildRiverCity(T, scene, world) {
       }else if(glass){rect(a,b+56,64,6,'#506773');rect(a,b+63,64,1,'#a5b3b5');}
       else if(shop){rect(a,b,64,8,'#766e63');}
       else{rect(wx-3,wy+h+1,w+6,3,'#c9c4b6');if(!brick)rect(a,b+62,64,2,'rgba(55,53,50,.22)');}
+      if(brick){
+        d.save();
+        d.beginPath();d.rect(a,b,64,64);d.rect(wx-3,wy-3,w+6,h+7);d.clip('evenodd');
+        for(let row=0;row<22;row++)for(let col=-1;col<10;col++){
+          const px=a+col*7+(row%2)*3.5,py=b+row*3;
+          rect(px,py,6.5,2.55,'rgba(65,40,29,'+(.07+.25*rand())+')');
+          rect(px+.25,py+.12,6,.3,'rgba(226,170,139,.17)');
+        }
+        d.restore();
+      }
     }
     const dayTex=new T.CanvasTexture(day);
-    dayTex.wrapS=dayTex.wrapT=T.RepeatWrapping;dayTex.colorSpace=T.SRGBColorSpace;dayTex.anisotropy=4;textures.push(dayTex);
+    dayTex.wrapS=dayTex.wrapT=T.RepeatWrapping;dayTex.colorSpace=T.SRGBColorSpace;dayTex.anisotropy=8;textures.push(dayTex);
     mat.onBeforeCompile=shader=>{
       shader.uniforms.sunlight=HanDaylight;shader.uniforms.dayFacade={value:dayTex};
       shader.fragmentShader="uniform float sunlight;uniform sampler2D dayFacade;\n"+shader.fragmentShader.replace("#include <map_fragment>",

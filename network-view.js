@@ -3,6 +3,7 @@
 window.drawSeoulStreets=function(T,scene,world){
  const live=new Map(),tile=world.cellSize;
  const mat=new T.MeshStandardMaterial({vertexColors:true,roughness:.92,metalness:.025,side:T.DoubleSide});
+ const asphalt=createSeoulAsphalt(T);
  const furniture=createSeoulFurniture(T,world);
  const colors={busBlue:0x197bb7,busGlass:0x253e50,busPavement:0x766665,asphalt:0x625f59,patch:0x605d58,white:0xe4e5dd,yellow:0xd9a83f,curb:0xa29b90,steel:0x919b9e,deck:0x626d72,pier:0x7b8284};
  for(const k in colors)colors[k]=new T.Color(colors[k]);
@@ -11,12 +12,17 @@ window.drawSeoulStreets=function(T,scene,world){
    shader.uniforms.lampMap={value:furniture.lightMap};shader.uniforms.lampOrigin={value:furniture.origin};
    shader.uniforms.daylight=HanDaylight;
    shader.uniforms.roadWet=SeoulWeather.uniforms.wet;shader.uniforms.roadSnow=SeoulWeather.uniforms.snow;
+   shader.uniforms.asphaltGrain={value:asphalt};
    shader.vertexShader='varying vec3 roadWorld;attribute float pavement;varying float surfaceMask;\n'+shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\nroadWorld=position;surfaceMask=pavement;');
-   shader.fragmentShader='varying vec3 roadWorld;varying float surfaceMask;uniform float roadWet,roadSnow;\n'+shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
-      vec2 g=floor(roadWorld.xz*24.0);float grain=fract(sin(dot(mod(g,4096.0),vec2(12.9898,78.233)))*43758.5453);
+   shader.fragmentShader='varying vec3 roadWorld;varying float surfaceMask;uniform float roadWet,roadSnow;uniform sampler2D asphaltGrain;\n'+shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
+      vec2 pavementUV=roadWorld.xz/5.0;
+      float grain=texture2D(asphaltGrain,pavementUV).r;
+      float rollingWear=texture2D(asphaltGrain,mat2(.8,.6,-.6,.8)*pavementUV*.037).r;
+      float detail=1.0-smoothstep(35.0,150.0,distance(cameraPosition,roadWorld));
+      diffuseColor.rgb*=1.+surfaceMask*((grain-.467)*.80+(rollingWear-.467)*.95)*detail;
       diffuseColor.rgb*=1.-.39*roadWet*surfaceMask;
       diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.62,.69,.75),roadSnow*surfaceMask*(.63+.12*grain));
-      float fade=1.0-smoothstep(14.0,54.0,distance(cameraPosition,roadWorld));diffuseColor.rgb*=1.0+(grain-.5)*.26*fade;`);
+      diffuseColor.rgb*=1.+(grain-.467)*.25*detail*(1.-surfaceMask);`);
    shader.fragmentShader=shader.fragmentShader.replace('#include <roughnessmap_fragment>','#include <roughnessmap_fragment>\nroughnessFactor=mix(roughnessFactor,.22,roadWet*surfaceMask);');
    shader.fragmentShader='uniform sampler2D lampMap;uniform vec2 lampOrigin;uniform float daylight;\n'+shader.fragmentShader.replace('#include <emissivemap_fragment>',`#include <emissivemap_fragment>
      vec2 uvLamp=(roadWorld.xz-lampOrigin)/${furniture.extent.toFixed(1)};

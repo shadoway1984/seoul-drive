@@ -238,5 +238,12 @@ window.buildAtmosphere = function buildAtmosphere(T, scene, renderer, world) {
     if(scene.fog===haze)scene.fog=oldFog;
     pmrem.dispose();rim.shadow.map?.dispose();target.dispose();env.dispose();skyGeo.dispose();skyMat.dispose();water.geometry.dispose();waterMat.dispose();beamTex.dispose();
   }
-  return {update,dispose};
+  function setShadowResolution(size){
+    if(rim.shadow.mapSize.x===size)return;
+    rim.shadow.mapSize.set(size,size);
+    rim.shadow.map?.dispose();
+    rim.shadow.map=null;
+    rim.shadow.needsUpdate=true;
+  }
+  return {update,dispose,setShadowResolution};
 };
